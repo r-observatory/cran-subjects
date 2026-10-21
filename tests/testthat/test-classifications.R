@@ -92,6 +92,22 @@ test_that("a keep classification does not lift a hold from the automatic checks"
   expect_equal(out[[1]]$status, "held"); expect_equal(out[[1]]$held_reason, "maintainers")
   expect_equal(out[[1]]$name, "Unit testing")
 })
+test_that("a keep classification lifts an earlier hold classification", {
+  g <- grp("k1", u); g$status <- "held"; g$held_reason <- "classification"
+  out <- apply_classifications(list(g), list(v(3L, u, "keep", name = "Unit testing",
+    description = "These packages test R code.")), e, list(), s)
+  expect_equal(out[[1]]$status, "judged"); expect_true(is.na(out[[1]]$held_reason))
+})
+test_that("split gives the same parts under any global seed and leaves the global RNG alone", {
+  run <- function() apply_classifications(list(grp("k1", c(u, st))), list(v(3L, c(u, st), "split", groups = list(
+    list(name = "Unit testing", packages = u[1:2]), list(name = "Statistical tests", packages = st[1:2])))), e, list(), s)
+  a <- withr::with_seed(99, run())
+  b <- withr::with_seed(7, run())
+  expect_identical(a, b)
+  expect_equal(sort(vapply(a, function(g) length(g$members), 1L)), c(25L, 25L))
+  next_draw <- withr::with_seed(5, { run(); runif(1) })
+  expect_equal(next_draw, withr::with_seed(5, runif(1)))
+})
 test_that("one classification applies to one group only, the best match", {
   out <- apply_classifications(list(grp("k1", u[1:10]), grp("k2", u[11:25])), list(v(3L, u, "hold")), e, list(),
                         modifyList(s, list(drift_jaccard = 0.3)))
@@ -109,7 +125,8 @@ test_that("read_classifications reads what the judge writes and rejects bad file
   jsonlite::write_json(list(v(3L, c("data.table", "R6"), "split", groups = list(list(name = "x", packages = "data.table"))),
                             v(5L, u, "merge", merge_with = 9L, strays = list())), f, auto_unbox = TRUE)
   r <- read_classifications(f)
-  expect_equal(r[[1]]$subject_id, 3L); expect_equal(r[[1]]$members, c("data.table", "R6"))
+  expect_equal(r[[1]]$subject_id, 3L); expect_setequal(r[[1]]$members, c("data.table", "R6"))
+  expect_type(r[[1]]$members, "character")
   expect_equal(r[[1]]$groups[[1]]$packages, "data.table")
   expect_equal(r[[2]]$merge_with, 9L); expect_equal(r[[2]]$strays, character())
   writeLines("[]", f); expect_equal(read_classifications(f), list())
@@ -151,4 +168,17 @@ test_that("waiting_subjects lists new names, name holds and drifted classificati
   expect_equal(w$why, c("new name", "held: name_generic", "drifted", "drifted"))
   expect_equal(w$slug, c("s1", "s2", "s4", "s6"))
   expect_equal(nrow(waiting_subjects(subj[0, ], m[0, ], list(), s)), 0L)
+})
+test_that("drift is measured without strays and with the groups merged in", {
+  p <- sprintf("p%02d", 1:10)
+  subj <- data.frame(subject_id = c(1L, 2L), slug = c("s1", "s2"), name = c("Name 1", "Name 2"), status = "judged",
+                     held_reason = NA, stringsAsFactors = FALSE)
+  m <- data.frame(subject_id = c(rep(1L, 6), rep(2L, 50)), package = c(p[5:10], u, st), is_primary = 1L, left = NA)
+  vs <- list(v(1L, p, "keep", name = "n", description = "d", strays = p[1:4]),
+             v(2L, st, "keep", name = "n", description = "d"), v(3L, u, "merge", merge_with = 2L))
+  expect_equal(nrow(waiting_subjects(subj, m, vs, s)), 0L)
+  w <- waiting_subjects(subj, m, vs[1:2], s)
+  expect_equal(w$subject_id, 2L); expect_equal(w$why, "drifted")
+  w <- waiting_subjects(subj, m, list(v(1L, p, "keep", name = "n", description = "d")), s)
+  expect_equal(w$subject_id, 1L)
 })

@@ -156,7 +156,8 @@ match_classifications <- function(groups, classifications, threshold) {
 
 # A hold from the automatic checks, which no classification lifts.
 held_by_checks <- function(g) {
-  identical(g$status, "held") && !isTRUE(startsWith(as.character(g$held_reason), "name_"))
+  r <- as.character(g$held_reason)
+  identical(g$status, "held") && !isTRUE(startsWith(r, "name_")) && !identical(r, "classification")
 }
 
 judge_group <- function(g, v, name, description) {
@@ -183,7 +184,7 @@ split_group <- function(g, v, edges, settings) {
   for (j in seq_along(cg)) seed[members[members %in% cg[[j]][["packages"]]]] <- j
   fixed <- seed >= 0L
   if (!any(fixed)) return(list())
-  set.seed(if (is.null(settings$seed)) 1L else settings$seed)
+  withr::local_seed(if (is.null(settings$seed)) 1L else settings$seed)
   lab <- as.integer(igraph::membership(igraph::cluster_label_prop(
     gr, weights = if (nrow(e)) e$weight else NULL, initial = unname(seed), fixed = unname(fixed))))
   owner <- tapply(seed[fixed], lab[fixed], function(x) x[1])
@@ -303,13 +304,19 @@ waiting_subjects <- function(subjects, members, classifications, settings) {
     vid <- vapply(classifications, function(v) as.integer(v[["subject_id"]]), 1L)
     when <- vapply(classifications, function(v) as.character(v[["judged_at"]]), "")
     latest <- order(when, decreasing = TRUE, method = "radix")
+    into <- vapply(classifications, function(v) {
+      if (identical(v[["classification"]], "merge")) as.integer(v[["merge_with"]]) else NA_integer_
+    }, 1L)
+    settled <- function(v) setdiff(v[["members"]], v[["strays"]])
     cur <- members[!is.na(members$is_primary) & members$is_primary == 1 & is.na(members$left), , drop = FALSE]
     for (i in check) {
       id <- subjects$subject_id[i]
       k <- latest[vid[latest] == id][1]
       if (is.na(k)) next
+      # Its own classification without strays, plus every group merged into it.
+      base <- Reduce(union, lapply(classifications[which(into == id)], settled), settled(classifications[[k]]))
       now <- cur$package[cur$subject_id == id]
-      if (jaccard(classifications[[k]][["members"]], now) < settings$drift_jaccard - 1e-12) why[i] <- "drifted"
+      if (jaccard(base, now) < settings$drift_jaccard - 1e-12) why[i] <- "drifted"
     }
   }
   keep <- !is.na(why)
