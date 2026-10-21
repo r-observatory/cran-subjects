@@ -1,0 +1,57 @@
+name: Remind to judge subjects
+
+on:
+  schedule:
+    - cron: "0 9 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: "release"
+          use-public-rspm: true
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          packages: |
+            any::RSQLite
+            any::DBI
+            any::jsonlite
+      - name: Build the reminder
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          Rscript scripts/remind.R out/
+      - name: Open, update or close the issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          count=$(cat out/remind-count.txt)
+          title=$(head -n 1 out/remind.md)
+          tail -n +3 out/remind.md > out/remind-body.md
+          number=$(gh issue list --label judge --state open --json number --jq '.[0].number // empty')
+          if [ "$count" = "0" ]; then
+            if [ -n "$number" ]; then
+              gh issue close "$number" --comment "No subjects are waiting for a classification."
+            fi
+            exit 0
+          fi
+          if [ -n "$number" ]; then
+            gh issue edit "$number" --title "$title" --body-file out/remind-body.md
+          else
+            if ! gh label list --limit 200 --json name --jq '.[].name' | grep -qx judge; then
+              gh label create judge --description "Subjects waiting for a classification" --color 0e8a16
+            fi
+            gh issue create --title "$title" --body-file out/remind-body.md --label judge
+          fi
