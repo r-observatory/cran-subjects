@@ -1,0 +1,153 @@
+name: Update CRAN Subjects
+
+on:
+  schedule:
+    - cron: "0 3 * * 1"
+    - cron: "30 5 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Run mode."
+        type: choice
+        options:
+          - weekly
+          - daily
+        default: daily
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cran-subjects-update
+  cancel-in-progress: false
+
+env:
+  MODEL_SHA256: d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785
+  MODEL_URL: https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf
+  MODEL_PATH: models/Qwen3-8B-Q4_K_M.gguf
+  LLAMA_TAG: b11669
+  LLAMA_ASSET: llama-b11669-bin-ubuntu-x64.tar.gz
+  LLAMA_SHA256: cf07c1c112d709bd67e522017471de57ed0ec8bea031d732c5422351c07f65ac
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set the mode
+        run: |
+          if [ "${{ github.event.schedule }}" = "0 3 * * 1" ]; then
+            MODE=weekly
+          elif [ -n "${{ inputs.mode }}" ]; then
+            MODE="${{ inputs.mode }}"
+          else
+            MODE=daily
+          fi
+          echo "MODE=$MODE" >> "$GITHUB_ENV"
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: "release"
+          use-public-rspm: true
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          packages: |
+            any::RSQLite
+            any::DBI
+            any::jsonlite
+            any::Matrix
+            any::irlba
+            any::igraph
+            any::testthat
+            any::withr
+      - name: Run unit tests
+        run: Rscript tests/testthat.R
+      - name: Install llama.cpp
+        if: env.MODE == 'weekly'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download "$LLAMA_TAG" --repo ggml-org/llama.cpp --pattern "$LLAMA_ASSET" --dir .
+          echo "$LLAMA_SHA256  $LLAMA_ASSET" | sha256sum -c -
+          mkdir -p llama
+          tar -xzf "$LLAMA_ASSET" -C llama
+          cli=$(find llama -name llama-cli -type f | head -n 1)
+          test -n "$cli"
+          echo "$(cd "$(dirname "$cli")" && pwd)" >> "$GITHUB_PATH"
+      - name: Restore the model
+        if: env.MODE == 'weekly'
+        id: model-cache
+        uses: actions/cache@v6
+        with:
+          path: models/Qwen3-8B-Q4_K_M.gguf
+          key: qwen3-8b-q4km-d98cdcbd
+      - name: Download the model
+        if: env.MODE == 'weekly' && steps.model-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p models
+          curl -L --fail --retry 3 -o "$MODEL_PATH" "$MODEL_URL"
+      - name: Check the model
+        if: env.MODE == 'weekly'
+        run: |
+          set -euo pipefail
+          echo "$MODEL_SHA256  $MODEL_PATH" | sha256sum -c -
+      - name: Build the subjects database
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          if [ "$MODE" = "weekly" ]; then
+            Rscript scripts/update.R out/ --mode "$MODE" --llama llama-cli --model "$MODEL_PATH"
+          else
+            Rscript scripts/update.R out/ --mode "$MODE"
+          fi
+      - name: Publish to the "current" release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if ! gh release view current >/dev/null 2>&1; then
+            gh release create current --title "CRAN Subjects (rolling)" \
+              --notes "Subject groups and collections among CRAN packages." --latest
+          fi
+          gh release upload current out/cran-subjects.db out/manifest.json --clobber
+
+  keepalive:
+    # GitHub disables a public repository's scheduled workflows after 60 days
+    # without repository activity. Publishing a release does not count; a
+    # commit does. This is its own job so a failed or timed-out update still
+    # keeps the schedule alive.
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    # The work takes seconds; the rest is headroom for a slow runner start.
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Update last run timestamp
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for _ in 1 2 3; do
+            # Decide against main as it is now, not the commit this run started
+            # from, so a re-run, a queued run or a push that lands meanwhile
+            # finds the newer commit and stops here instead of conflicting.
+            git fetch --depth=1 origin main
+            git reset --hard FETCH_HEAD
+            # A commit a day is far inside the 60-day window, so skip when main
+            # already has a commit from the last 20 hours.
+            if [ $(( $(date +%s) - $(git log -1 --format=%ct) )) -lt 72000 ]; then
+              echo "main already has a commit from the last 20 hours"
+              exit 0
+            fi
+            echo "Last updated: $(date -u +'%Y-%m-%d %H:%M:%S UTC')" > last-updated.txt
+            git add last-updated.txt
+            git commit -m "chore: update last run time"
+            git push origin HEAD:main && exit 0
+            sleep 10
+          done
+          exit 1
