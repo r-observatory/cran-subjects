@@ -87,7 +87,9 @@ find_collections <- function(inputs, settings) {
       }
       kind1_owners <- c(kind1_owners, tolower(o))
     }
-    ow <- unique(own$owner[own$package == nm])
+    ow <- sort(unique(own$owner[own$package == nm]), method = "radix")
+    ow_org <- sort(unique(o), method = "radix")
+    if (length(ow_org)) ow <- ow_org
     slug <- tolower(nm)
     i <- match(nm, pk$name)
     cols[[slug]] <- data.frame(slug = slug, kind = "package", package = nm,
@@ -140,12 +142,13 @@ find_collections <- function(inputs, settings) {
     inD <- grepl(pat, dl, ignore.case = TRUE, perl = TRUE)
     tp <- unique(inputs$topics$package[tolower(inputs$topics$topic) == slug])
     m <- rbind(
-      data.frame(package = pk$name[inT], source = rep("title", sum(inT))),
+      data.frame(package = pk$name[inT], source = rep("description", sum(inT))),
       data.frame(package = pk$name[inD], source = rep("description", sum(inD))),
       data.frame(package = tp, source = rep("topic", length(tp)))
     )
     skip <- c(members$package[members$slug == slug], own_pkg)
     m <- m[!m$package %in% skip & m$package %in% pk$name, , drop = FALSE]
+    m <- m[!duplicated(m), , drop = FALSE]
     if (nrow(m)) mn[[slug]] <- data.frame(slug = slug, package = m$package, source = m$source,
                                           stringsAsFactors = FALSE)
   }

@@ -75,6 +75,37 @@ test_that("curly quotes count as quotes", {
                "description")
 })
 
+test_that("member-package wording needs an install, load or attach word nearby", {
+  expect_false(is_collection_text("Part of the AzureR family of packages.", NA))
+  expect_true(is_collection_text("Installs and loads a suite of packages for X.", NA))
+  expect_true(is_collection_text("A family of packages for X, you can load them all at once", NA))
+  expect_true(is_collection_text(NA, "Attaches a set of R packages."))
+  far <- paste0("A family of packages", strrep(" word", 20), " and then load")
+  expect_false(is_collection_text(far, NA))
+})
+
+test_that("a title and description mention gives one description row", {
+  y <- x
+  y$packages$title[y$packages$name == "janitor"] <- "Works with 'tidyverse'"
+  g <- find_collections(y, default_settings())
+  mm <- g$mentions[g$mentions$slug == "tidyverse" & g$mentions$package == "janitor", ]
+  expect_equal(mm$source, "description")
+  expect_false("title" %in% g$mentions$source)
+})
+
+test_that("the github owner prefers an Organization, then the first bytewise", {
+  expect_equal(f$collections$github_owner[f$collections$slug == "tidyverse"], "tidyverse")
+  y <- x
+  y$owners <- rbind(y$owners,
+                    data.frame(package = "tidyverse", owner = "aaa-user", owner_type = "User"),
+                    data.frame(package = "tidyverse", owner = "Zed-org", owner_type = "Organization"))
+  g <- find_collections(y, default_settings())
+  expect_equal(g$collections$github_owner[g$collections$slug == "tidyverse"], "Zed-org")
+  y$owners <- y$owners[y$owners$owner_type != "Organization" | y$owners$package != "tidyverse", ]
+  g <- find_collections(y, default_settings())
+  expect_equal(g$collections$github_owner[g$collections$slug == "tidyverse"], "aaa-user")
+})
+
 prev_row <- function(id, slug, last_seen = "2026-10-20") {
   data.frame(collection_id = id, slug = slug, kind = "package", package = slug,
              github_owner = NA_character_, title = "t", description = "d", maintainer = "m",
