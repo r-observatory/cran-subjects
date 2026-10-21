@@ -35,6 +35,17 @@ test_that("knn_edges keeps close pairs once, summing both directions", {
   expect_true(all(abs(e$weight - 2) < 1e-8))
 })
 
+test_that("topic_text orders topics bytewise, not by locale", {
+  expect_equal(topic_text(c("survivalx", "survival-zoo")), "survival zoo survivalx")
+})
+
+test_that("knn_edges gives the same edges for a small chunk", {
+  Z <- rbind(a = c(1, 0), b = c(1, 0), c = c(1, 0), d = c(0, 1))
+  expect_equal(knn_edges(Z, k = 2L, min_sim = 0.3, chunk = 2L),
+               knn_edges(Z, k = 2L, min_sim = 0.3))
+  expect_equal(rownames(knn_edges(Z, k = 2L, min_sim = 0.3)), as.character(1:3))
+})
+
 test_that("build_documents repeats the title, then description and topics", {
   pk <- data.frame(name = c("p1", "p2"), title = c("Alpha Tool", "Beta"),
                    description = c("Does 'things'", NA), stringsAsFactors = FALSE)

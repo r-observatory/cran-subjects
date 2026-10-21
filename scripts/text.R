@@ -17,7 +17,7 @@ clean_text <- function(x) {
 topic_text <- function(topics) {
   topics <- trimws(tolower(topics[!is.na(topics)]))
   topics <- topics[nzchar(topics) & !(topics %in% GENERIC_TOPICS)]
-  paste(sort(unique(gsub("-", " ", topics, fixed = TRUE))), collapse = " ")
+  paste(sort(unique(gsub("-", " ", topics, fixed = TRUE)), method = "radix"), collapse = " ")
 }
 
 build_documents <- function(packages, topics, title_weight) {
@@ -79,20 +79,25 @@ knn_edges <- function(Z, k, min_sim, chunk = 2000L) {
   nm <- if (is.null(rownames(Z))) as.character(seq_len(n)) else rownames(Z)
   rank <- match(nm, sort(nm, method = "radix"))
   k <- min(k, n - 1L)
-  ii <- jj <- integer(0)
-  ww <- numeric(0)
-  for (start in seq(1L, n, by = chunk)) {
-    idx <- start:min(start + chunk - 1L, n)
-    S <- Z[idx, , drop = FALSE] %*% t(Z)
+  tZ <- t(Z)
+  starts <- seq(1L, n, by = chunk)
+  parts <- vector("list", length(starts))
+  for (p in seq_along(starts)) {
+    idx <- starts[p]:min(starts[p] + chunk - 1L, n)
+    S <- Z[idx, , drop = FALSE] %*% tZ
     S[cbind(seq_along(idx), idx)] <- -Inf
+    rows <- vector("list", length(idx))
     for (r in seq_along(idx)) {
       top <- order(S[r, ], decreasing = TRUE)[seq_len(k)]
       top <- top[S[r, top] >= min_sim]
-      ii <- c(ii, rep(idx[r], length(top)))
-      jj <- c(jj, top)
-      ww <- c(ww, S[r, top])
+      rows[[r]] <- list(rep(idx[r], length(top)), top, S[r, top])
     }
+    parts[[p]] <- rows
   }
+  rows <- unlist(parts, recursive = FALSE)
+  ii <- unlist(lapply(rows, `[[`, 1L))
+  jj <- unlist(lapply(rows, `[[`, 2L))
+  ww <- unlist(lapply(rows, `[[`, 3L))
   lo <- ifelse(rank[ii] < rank[jj], ii, jj)
   hi <- ifelse(rank[ii] < rank[jj], jj, ii)
   if (length(lo) == 0L) {
@@ -104,5 +109,7 @@ knn_edges <- function(Z, k, min_sim, chunk = 2000L) {
   w <- rowsum(ww, key, reorder = FALSE)
   out <- data.frame(from = nm[lo[first]], to = nm[hi[first]],
                     weight = as.numeric(w[key[first], 1]), stringsAsFactors = FALSE)
-  out[order(rank[match(out$from, nm)], rank[match(out$to, nm)]), ]
+  out <- out[order(rank[match(out$from, nm)], rank[match(out$to, nm)]), ]
+  rownames(out) <- NULL
+  out
 }
