@@ -1,0 +1,7 @@
+library(testthat)
+scripts <- list.files(file.path(getwd(), "scripts"), pattern = "\\.R$", full.names = TRUE)
+last <- file.path(getwd(), "scripts", c("update.R", "judge.R", "remind.R"))
+first <- file.path(getwd(), "scripts", "config.R")
+middle <- sort(setdiff(scripts, c(first, last)))
+for (f in c(first, middle, intersect(last, scripts))) source(f)
+test_dir("tests/testthat", stop_on_failure = TRUE)
