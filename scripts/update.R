@@ -117,11 +117,11 @@ weekly_pass <- function(prev, inputs, classifications, io, settings, today, tick
   pm <- typed(prev$subject_members, "subject_members")
   pb <- typed(prev$subject_name_basis, "subject_name_basis")
 
-  Z <- embed_packages(inputs, settings)
+  emb <- embed_packages(inputs, settings)
   tick("text")
-  edges <- combine_edges(knn_edges(Z, settings$knn_k, settings$knn_min_sim),
+  edges <- combine_edges(knn_edges(emb$Z, settings$knn_k, settings$knn_min_sim),
                          dependency_edges(inputs$deps, pk$name))
-  rm(Z)
+  emb$Z <- NULL
   tick("knn")
   cl <- find_clusters(edges, pk$name, settings$resolution, settings$seed, settings$iterations)
   groups <- candidate_groups(cl, pk, settings)
@@ -160,7 +160,7 @@ weekly_pass <- function(prev, inputs, classifications, io, settings, today, tick
   subjects <- rbind(current, ps[ps$status %in% "retired", , drop = FALSE],
                     retire_rows(ps, setdiff(live, gid), after, gid, prev_members, fx))
 
-  members <- carry_members(pm, member_rows(after, gid, inputs, edges, titles, phrases, settings), today)
+  members <- carry_members(pm, member_rows(after, gid, inputs, edges, titles, phrases, emb, settings), today)
   keep <- pb[!as.character(pb$subject_id) %in% names(nm$basis), , drop = FALSE]
   basis <- rbind(keep, typed(data.frame(
     subject_id = as.integer(rep(names(nm$basis), lengths(nm$basis))),
@@ -174,12 +174,12 @@ weekly_pass <- function(prev, inputs, classifications, io, settings, today, tick
        calls = nm$calls)
 }
 
-# Text vectors for every current package.
+# TF-IDF and text vectors for every current package, with the stop words used.
 embed_packages <- function(inputs, settings) {
+  sw <- load_stopwords(file.path(.script_dir, "stopwords.txt"))
   docs <- build_documents(inputs$packages, inputs$topics, settings$title_weight)
-  X <- tfidf_matrix(docs, load_stopwords(file.path(.script_dir, "stopwords.txt")),
-                    settings$min_df, settings$max_df)
-  embed(X, settings$svd_dim, settings$seed)
+  X <- tfidf_matrix(docs, sw, settings$min_df, settings$max_df)
+  list(X = X, Z = embed(X, settings$svd_dim, settings$seed), stopwords = sw)
 }
 
 empty_group <- function(key, members, status = NA_character_, held_reason = NA_character_) {
@@ -212,14 +212,28 @@ classification_effects <- function(groups, after, classifications, prev_members,
     v <- classifications[[pick[i]]]
     if (v[["classification"]] == "split") fx$split[groups[[i]]$key] <- as.integer(v[["subject_id"]])
   }
-  for (i in hit) {
-    v <- classifications[[pick[i]]]
-    if (v[["classification"]] != "merge" || groups[[i]]$key %in% keys) next
-    fx$gone <- c(fx$gone, as.integer(v[["subject_id"]]))
-    into <- as.integer(v[["merge_with"]])
-    moved <- setdiff(groups[[i]]$members, v[["strays"]])
+  merged <- hit[vapply(hit, function(i) {
+    classifications[[pick[i]]][["classification"]] == "merge" && !groups[[i]]$key %in% keys
+  }, NA)]
+  src <- vapply(merged, function(i) as.integer(classifications[[pick[i]]][["subject_id"]]), 1L)
+  dst <- vapply(merged, function(i) as.integer(classifications[[pick[i]]][["merge_with"]]), 1L)
+  fx$gone <- src
+  # A into B and B into C ends at C.
+  final <- function(id) {
+    seen <- integer()
+    while (id %in% src && !id %in% seen) {
+      seen <- c(seen, id)
+      id <- dst[match(id, src)]
+    }
+    id
+  }
+  for (k in seq_along(merged)) {
+    v <- classifications[[pick[merged[k]]]]
+    into <- final(dst[k])
+    moved <- setdiff(groups[[merged[k]]]$members, v[["strays"]])
     held <- vapply(after, function(g) sum(moved %in% g$members), 0L)
-    if (!as.character(into) %in% names(prev_members) || into %in% c(fx$split, fx$pin) || !any(held > 0L)) next
+    if (!as.character(into) %in% names(prev_members) || into %in% c(fx$split, fx$gone, fx$pin) ||
+        !any(held > 0L)) next
     to <- keys[order(-held, keys, method = "radix")][1]
     if (!to %in% names(fx$pin)) fx$pin[to] <- into
   }
@@ -258,9 +272,15 @@ carry_name <- function(g, p) {
     g$status <- "held"
     g$held_reason <- p$held_reason
   } else {
-    g$status <- if (identical(p$named_by, MODEL_SHA256)) "named" else "judged"
+    g$status <- if (is.na(p$classification_at)) "named" else "judged"
   }
   g
+}
+
+# Site text rules for a name: no semicolon, and no first word A or An.
+site_name_ok <- function(x) {
+  first <- strsplit(trimws(x), "\\s+")[[1]][1]
+  !grepl(";", x, fixed = TRUE) && !tolower(if (is.na(first)) "" else first) %in% c("a", "an")
 }
 
 usable_answer <- function(a) {
@@ -281,11 +301,13 @@ name_groups <- function(groups, ids, ps, basis, phrases, inputs, edges, io, sett
   new_basis <- list()
   queue <- integer()
   fallback <- vector("list", length(groups))
+  was_published <- logical(length(groups))
   for (i in seq_along(groups)) {
     g <- groups[[i]]
     id <- ids[[g$key]]
     j <- match(id, ps$subject_id)
     p <- if (is.na(j)) NULL else ps[j, , drop = FALSE]
+    was_published[i] <- !is.null(p) && p$status %in% PUBLISHED
     if (identical(g$status, "judged") || (identical(g$status, "held") && !is.na(g$name))) {
       new_basis[[as.character(id)]] <- g$members
     } else if (identical(g$status, "held")) {
@@ -309,6 +331,7 @@ name_groups <- function(groups, ids, ps, basis, phrases, inputs, edges, io, sett
 
   calls <- 0L
   fresh <- integer()
+  ready <- FALSE
   if (length(queue)) {
     size <- vapply(groups[queue], function(g) length(g$members), 0L)
     keys <- vapply(groups[queue], `[[`, "", "key")
@@ -316,25 +339,32 @@ name_groups <- function(groups, ids, ps, basis, phrases, inputs, edges, io, sett
     queue <- queue[order(!unnamed, -size, keys, method = "radix")]
     system_prompt <- paste(readLines(file.path(.script_dir, "prompts", "name-system.txt"),
                                      warn = FALSE, encoding = "UTF-8"), collapse = "\n")
+    ready <- !is.function(io$can_name) || isTRUE(io$can_name())
   }
+  # A subject published last run never unpublishes through its own rename.
+  keep_old <- function(i) was_published[i] && !is.null(fallback[[i]])
   for (i in queue) {
     g <- groups[[i]]
     ans <- NULL
-    if (calls < settings$name_cap) {
+    if (ready && calls < settings$name_cap) {
       calls <- calls + 1L
       ans <- io$name_cluster(system_prompt, name_prompt(g$members, inputs, edges, phrases[[i]], settings))
     }
     if (usable_answer(ans)) {
       clean <- clean_name(ans[["name"]], g$members)
-      generic <- is_generic_name(clean)
-      g$name <- if (nzchar(clean)) clean else trimws(ans[["name"]])
-      g$description <- site_sentence(ans[["description"]])
-      g$named_by <- MODEL_SHA256
-      g$named_at <- today
-      g$status <- if (generic) "held" else "named"
-      g$held_reason <- if (generic) "name_generic" else NA_character_
-      if (!generic) fresh <- c(fresh, i)
-      new_basis[[as.character(ids[[g$key]])]] <- g$members
+      bad <- is_generic_name(clean) || !site_name_ok(clean)
+      if (bad && keep_old(i)) {
+        g <- fallback[[i]]
+      } else {
+        g$name <- if (nzchar(clean)) clean else trimws(ans[["name"]])
+        g$description <- site_sentence(ans[["description"]])
+        g$named_by <- MODEL_SHA256
+        g$named_at <- today
+        g$status <- if (bad) "held" else "named"
+        g$held_reason <- if (bad) "name_generic" else NA_character_
+        if (!bad) fresh <- c(fresh, i)
+        new_basis[[as.character(ids[[g$key]])]] <- g$members
+      }
     } else if (!is.null(fallback[[i]])) {
       g <- fallback[[i]]
     } else {
@@ -344,14 +374,24 @@ name_groups <- function(groups, ids, ps, basis, phrases, inputs, edges, io, sett
     groups[[i]] <- g
   }
 
-  # Names given this run that nest with any other subject's name are held.
-  named <- which(vapply(groups, function(g) !is.na(g$name) && nzchar(g$name), NA))
-  if (length(fresh) && length(named) > 1L) {
-    dup <- named[near_duplicate_names(vapply(groups[named], `[[`, "", "name"))]
-    for (i in intersect(fresh, dup)) {
-      groups[[i]]$status <- "held"
-      groups[[i]]$held_reason <- "name_duplicate"
+  # Names given this run that nest with any other subject's name are held; a subject
+  # published last run takes its old name back instead, and the check runs again.
+  repeat {
+    named <- which(vapply(groups, function(g) !is.na(g$name) && nzchar(g$name), NA))
+    dup <- if (length(fresh) && length(named) > 1L) {
+      intersect(fresh, named[near_duplicate_names(vapply(groups[named], `[[`, "", "name"))])
+    } else integer()
+    back <- dup[vapply(dup, keep_old, NA)]
+    if (!length(back)) break
+    for (i in back) {
+      groups[i] <- fallback[i]
+      new_basis[[as.character(ids[[groups[[i]]$key]])]] <- NULL
     }
+    fresh <- setdiff(fresh, back)
+  }
+  for (i in dup) {
+    groups[[i]]$status <- "held"
+    groups[[i]]$held_reason <- "name_duplicate"
   }
   list(groups = groups, basis = new_basis, calls = calls)
 }
@@ -375,7 +415,8 @@ assign_slugs <- function(groups, gid, ps) {
   slug
 }
 
-# Unmatched previous subjects, retired with a redirect to the largest split part or the main heir.
+# Unmatched previous subjects, retired with a redirect to the largest split part or the main heir
+# when that heir is published.
 retire_rows <- function(ps, gone, groups, gid, prev_members, fx) {
   rows <- ps[ps$subject_id %in% gone, , drop = FALSE]
   for (r in seq_len(nrow(rows))) {
@@ -390,6 +431,8 @@ retire_rows <- function(ps, gone, groups, gid, prev_members, fx) {
       held <- vapply(groups, function(g) sum(prev_members[[as.character(id)]] %in% g$members), 0L)
       if (any(held > 0L)) to <- gid[order(-held, gid)][1]
     }
+    # Only a published heir; otherwise NA, which the site answers with 410.
+    if (!is.na(to) && !groups[[match(to, gid)]]$status %in% PUBLISHED) to <- NA_integer_
     rows$redirect_to[r] <- to
   }
   rows$status <- rep("retired", nrow(rows))
@@ -398,8 +441,9 @@ retire_rows <- function(ps, gone, groups, gid, prev_members, fx) {
 }
 
 # Primary and second members of each group, with core flags and reasons.
-member_rows <- function(groups, gid, inputs, edges, titles, phrases, settings) {
+member_rows <- function(groups, gid, inputs, edges, titles, phrases, emb, settings) {
   if (!length(groups)) return(typed(NULL, "subject_members"))
+  desc <- stats::setNames(inputs$packages$description, inputs$packages$name)
   prim <- lapply(groups, `[[`, "members")
   asg <- data.frame(package = unlist(prim, use.names = FALSE),
                     cluster = rep(seq_along(groups), lengths(prim)), stringsAsFactors = FALSE)
@@ -414,7 +458,7 @@ member_rows <- function(groups, gid, inputs, edges, titles, phrases, settings) {
     core <- subject_core(all, inputs$deps, settings)
     ph <- phrases[[i]]
     rs <- placement_reasons(all, inputs$deps, titles, if (length(ph)) ph[[1]] else NA_character_,
-                            inputs$topics)
+                            inputs$topics, description_words(emb$X, p, all, desc, emb$stopwords))
     data.frame(subject_id = gid[i], package = all, is_core = as.integer(all %in% core),
                is_primary = as.integer(all %in% p), reason_kind = rs$reason_kind[match(all, rs$package)],
                reason_value = rs$reason_value[match(all, rs$package)], stringsAsFactors = FALSE)
@@ -466,8 +510,9 @@ daily_pass <- function(prev, inputs, settings, today, tick) {
 # New packages join the published subject holding enough of their link weight, plus second ones.
 place_new <- function(fresh, inputs, ps, open, settings) {
   pk <- inputs$packages
+  emb <- embed_packages(inputs, settings)
   dep <- dependency_edges(inputs$deps, pk$name)
-  e <- combine_edges(knn_rows(embed_packages(inputs, settings), fresh, settings$knn_k, settings$knn_min_sim),
+  e <- combine_edges(knn_rows(emb$Z, fresh, settings$knn_k, settings$knn_min_sim),
                      dep[dep$from %in% fresh | dep$to %in% fresh, , drop = FALSE])
   pub <- ps$subject_id[ps$status %in% PUBLISHED]
   home <- open[open$is_primary %in% 1L & open$subject_id %in% pub, c("package", "subject_id"), drop = FALSE]
@@ -490,13 +535,15 @@ place_new <- function(fresh, inputs, ps, open, settings) {
   rows$reason_kind <- NA_character_
   rows$reason_value <- NA_character_
   titles <- stats::setNames(pk$title, pk$name)
+  desc <- stats::setNames(pk$description, pk$name)
   gram_df <- title_gram_df(titles)
   for (id in unique(rows$subject_id)) {
     j <- rows$subject_id == id
     prim <- union(home$package[home$subject_id == id], rows$package[j & rows$is_primary == 1L])
     ph <- title_phrases(titles, prim, gram_df)
     rs <- placement_reasons(union(open$package[open$subject_id == id], rows$package[j]), inputs$deps,
-                            titles, if (length(ph)) ph[[1]] else NA_character_, inputs$topics)
+                            titles, if (length(ph)) ph[[1]] else NA_character_, inputs$topics,
+                            description_words(emb$X, prim, rows$package[j], desc, emb$stopwords))
     rows$reason_kind[j] <- rs$reason_kind[match(rows$package[j], rs$package)]
     rows$reason_value[j] <- rs$reason_value[match(rows$package[j], rs$package)]
   }
@@ -566,11 +613,11 @@ seen_rows <- function(prev_seen, packages, today) {
 
 # ---- io and CLI --------------------------------------------------------------
 
-USAGE <- "usage: Rscript scripts/update.R OUT_DIR --mode weekly|daily [--input PATH] [--previous PATH|none] [--llama PATH] [--model PATH] [--gpu]"
+USAGE <- "usage: Rscript scripts/update.R OUT_DIR --mode weekly|daily [--input PATH] [--previous PATH|none] [--llama PATH] [--model PATH] [--gpu] [--name-cap N]"
 
 parse_cli <- function(args) {
   out <- list(out_dir = "out", mode = "weekly", input = NULL, previous = NULL,
-              llama = "llama-cli", model = file.path("models", MODEL_FILE), gpu = FALSE)
+              llama = "llama-cli", model = file.path("models", MODEL_FILE), gpu = FALSE, name_cap = NULL)
   if (length(args) && !startsWith(args[1], "--")) {
     out$out_dir <- args[1]
     args <- args[-1]
@@ -582,14 +629,25 @@ parse_cli <- function(args) {
       i <- i + 1L
       next
     }
-    flag <- sub("^--", "", args[i])
-    if (!startsWith(args[i], "--") || !flag %in% c("mode", "input", "previous", "llama", "model") ||
+    flag <- gsub("-", "_", sub("^--", "", args[i]), fixed = TRUE)
+    if (!startsWith(args[i], "--") || !flag %in% c("mode", "input", "previous", "llama", "model", "name_cap") ||
         i == length(args)) stop(USAGE, call. = FALSE)
     out[[flag]] <- args[i + 1L]
     i <- i + 2L
   }
   if (!out$mode %in% c("weekly", "daily")) stop(USAGE, call. = FALSE)
+  if (!is.null(out$name_cap)) {
+    if (!grepl("^[0-9]+$", out$name_cap)) stop(USAGE, call. = FALSE)
+    out$name_cap <- as.integer(out$name_cap)
+  }
   out
+}
+
+# The default settings, with the CLI's overrides.
+cli_settings <- function(args) {
+  s <- default_settings()
+  if (!is.null(args$name_cap)) s$name_cap <- args$name_cap
+  s
 }
 
 gh_run <- function(args) {
@@ -632,6 +690,18 @@ default_io <- function(args, gh = gh_run) {
       if (r$status != 0L) stop("could not download ", DB_FILENAME, " from the current release: ", r$output, call. = FALSE)
       need(file.path(dir, DB_FILENAME), "downloaded previous state")
     },
+    # Checked once per weekly run before any naming call.
+    can_name = function() {
+      if (is.null(args$model) || !file.exists(args$model)) {
+        message("model not found: ", if (is.null(args$model)) "(none)" else args$model)
+        return(FALSE)
+      }
+      if (is.null(args$llama) || (!nzchar(Sys.which(args$llama)) && !file.exists(args$llama))) {
+        message("llama-cli not found: ", if (is.null(args$llama)) "(none)" else args$llama)
+        return(FALSE)
+      }
+      TRUE
+    },
     name_cluster = function(system, user) {
       if (is.null(args$model) || !file.exists(args$model)) return(NULL)
       llama_name(system, user, args$llama, args$model,
@@ -644,5 +714,5 @@ default_io <- function(args, gh = gh_run) {
 
 if (sys.nframe() == 0L) {
   args <- parse_cli(commandArgs(trailingOnly = TRUE))
-  run_update(default_io(args), args$out_dir, args$mode)
+  run_update(default_io(args), args$out_dir, args$mode, settings = cli_settings(args))
 }

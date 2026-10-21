@@ -46,6 +46,22 @@ test_that("knn_edges gives the same edges for a small chunk", {
   expect_equal(rownames(knn_edges(Z, k = 2L, min_sim = 0.3)), as.character(1:3))
 })
 
+test_that("embed leaves the global RNG alone, repeats exactly and normalises rows", {
+  X <- withr::with_seed(3, Matrix::rsparsematrix(40, 30, 0.3))
+  X[5, ] <- 0
+  X <- methods::as(X, "CsparseMatrix")
+  rownames(X) <- paste0("p", 1:40)
+  a <- withr::with_seed(5, runif(1))
+  b <- withr::with_seed(5, { embed(X, 6L, 1L); runif(1) })
+  expect_equal(a, b)
+  z1 <- embed(X, 6L, 1L)
+  expect_identical(z1, embed(X, 6L, 1L))
+  expect_equal(dim(z1), c(40L, 6L)); expect_equal(rownames(z1), rownames(X))
+  n <- sqrt(rowSums(z1^2))
+  expect_true(all(abs(n[-5] - 1) < 1e-8)); expect_equal(n[[5]], 0)
+  expect_equal(ncol(embed(X[1:5, 1:4], 50L, 1L)), 3L)
+})
+
 test_that("build_documents repeats the title, then description and topics", {
   pk <- data.frame(name = c("p1", "p2"), title = c("Alpha Tool", "Beta"),
                    description = c("Does 'things'", NA), stringsAsFactors = FALSE)

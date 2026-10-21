@@ -91,6 +91,33 @@ test_that("topic takes the most shared topic when several qualify", {
   expect_equal(r$reason_value[r$package == "a"], "spatial")
   expect_equal(r$reason_value[r$package == "d"], "spatial")
 })
+test_that("reason_text writes the description words", {
+  expect_equal(reason_text("words", "hazard and censored"), "Its description mentions hazard and censored")
+})
+test_that("words come after uses, used by, title and topic, and fill a member with no other reason", {
+  m <- c("a", "b", "c", "d", "e", "f", "g")
+  d <- data.frame(from = "a", to = "b", type = "Imports")
+  t <- c(a = "A", b = "B", c = "Survival Analysis Kit", d = "D", e = "E", f = "F", g = "G")
+  tp <- data.frame(package = c("d", "f", "g"), topic = "gis")
+  w <- c(a = "w1", b = "w2", c = "w3", d = "w4", e = "hazard and censored")
+  r <- placement_reasons(m, d, t, "survival analysis", tp, words = w)
+  expect_equal(r$reason_kind, c("uses", "used_by", "title", "topic", "words", "topic", "topic"))
+  expect_equal(r$reason_value[r$package == "e"], "hazard and censored")
+  r0 <- placement_reasons(m, d, t, "survival analysis", tp)
+  expect_true(is.na(r0$reason_kind[r0$package == "e"]))
+})
+test_that("description_words takes a package's two strongest top terms that its description uses", {
+  terms <- c("beta", "censored", "hazard", "kaplan", "zeta")
+  X <- Matrix::sparseMatrix(
+    i = c(1, 1, 1, 2, 2, 2, 3, 4), j = c(3, 2, 4, 3, 4, 1, 3, 5),
+    x = c(0.9, 0.5, 0.5, 0.3, 0.7, 0.1, 0.8, 0.9), dims = c(4, 5),
+    dimnames = list(c("p1", "p2", "p3", "p4"), terms))
+  desc <- c(p1 = "Hazard, censored and kaplan.", p2 = "Kaplan and beta.", p3 = "Nothing here.", p4 = "zeta")
+  w <- description_words(X, c("p1", "p2", "p3"), c("p1", "p2", "p3", "p4"), desc, character(), top = 3L)
+  expect_equal(w[["p1"]], "hazard and censored")
+  expect_equal(w[["p2"]], "kaplan")
+  expect_false("p3" %in% names(w)); expect_false("p4" %in% names(w))
+})
 test_that("output keeps member order with reset row names", {
   m <- c("zz", "aa", "mm")
   r <- placement_reasons(m, NULL, character(0), NA, NULL)

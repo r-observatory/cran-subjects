@@ -48,9 +48,16 @@ subject_id_of <- function(db, slug) q(db, sprintf("SELECT subject_id FROM subjec
 primary_of <- function(db, id) {
   sort(q(db, sprintf("SELECT package FROM subject_members WHERE subject_id = %d AND is_primary = 1", id))$package)
 }
-write_classification <- function(path, ...) {
-  jsonlite::write_json(list(list(fingerprint = "x", judged_at = "2026-11-01", model = "llm", ...)),
-                       path, auto_unbox = TRUE)
+classification <- function(...) list(fingerprint = "x", judged_at = "2026-11-01", model = "llm", ...)
+write_classification <- function(path, ...) jsonlite::write_json(list(classification(...)), path, auto_unbox = TRUE)
+# Names each fixture group by its own packages, so three groups can be published.
+named_io <- function(input, previous) {
+  io <- fake_io(input, previous)
+  io$name_cluster <- function(system, user) {
+    nm <- if (grepl("surv", user)) "Survival Analysis" else if (grepl("pal[0-9]", user)) "Colour Palettes" else "Tidy collections"
+    list(name = nm, description = "These packages share one subject.")
+  }
+  io
 }
 
 test_that("a cold run writes the manifest and records the run", {
@@ -97,12 +104,8 @@ test_that("a split classification retires the old id with a redirect to the larg
                 groups = list(list(name = "Survival models", packages = m[1:18],
                                    description = "These packages fit survival models."),
                               list(name = "Hazard curves", packages = m[19:30])))
-  io <- fake_io(r$db, r$out)
-  io$name_cluster <- function(system, user) {
-    nm <- if (grepl("pal[0-9]", user)) "Colour Palettes" else "Tidy collections"
-    list(name = nm, description = "These packages share one subject.")
-  }
-  out2 <- run_update(io, withr::local_tempdir(), "weekly", r$vf, modifyList(st, list(min_subject_size = 12L)))
+  out2 <- run_update(named_io(r$db, r$out), withr::local_tempdir(), "weekly", r$vf,
+                     modifyList(st, list(min_subject_size = 12L)))
   s <- q(out2, "SELECT * FROM subjects")
   big <- s[s$slug == "survival-models", ]; small <- s[s$slug == "hazard-curves", ]
   expect_equal(c(big$status, small$status), c("judged", "judged"))
@@ -212,4 +215,135 @@ test_that("default_io reads the previous state fail-closed", {
   expect_error(default_io(list(previous = file.path(dir, "gone.db")))$fetch_previous(dir), "previous state")
   expect_equal(default_io(list(input = file.path(dir, "cran-subjects.db")))$fetch_input(dir),
                file.path(dir, "cran-subjects.db"))
+})
+
+test_that("a member with no dependency, title or topic reason gets the description words", {
+  db <- withr::local_tempfile(fileext = ".db"); make_fixture_store(db)
+  con <- DBI::dbConnect(RSQLite::SQLite(), db)
+  DBI::dbExecute(con, "UPDATE packages SET imports = NULL, title = 'Kaplan Meier Curves' WHERE name = 'surv30'")
+  DBI::dbDisconnect(con)
+  vf <- withr::local_tempfile(fileext = ".json"); writeLines("[]", vf)
+  out <- run_update(fake_io(db, NULL), withr::local_tempdir(), "weekly", vf, st)
+  m <- q(out, "SELECT reason_kind, reason_value FROM subject_members WHERE package = 'surv30'")
+  expect_equal(m$reason_kind, "words")
+  terms <- strsplit(m$reason_value, " and ", fixed = TRUE)[[1]]
+  expect_true(length(terms) %in% 1:2)
+  own <- tokenize(clean_text("Fits hazard models for censored data and Kaplan-Meier curves."), load_stopwords(file.path(.script_dir, "stopwords.txt")))
+  expect_true(all(terms %in% own))
+})
+
+test_that("a published subject keeps its name, status and basis when its rename breaks a rule", {
+  db <- withr::local_tempfile(fileext = ".db"); make_fixture_store(db); x <- read_inputs(db)
+  groups <- list(empty_group("c1", sprintf("surv%02d", 1:30)), empty_group("c2", sprintf("pal%02d", 1:30)))
+  ps <- typed(data.frame(subject_id = 1L, slug = "colour-palettes", name = "Colour palettes", status = "named",
+                         named_by = MODEL_SHA256, named_at = "2026-10-01", first_seen = "2026-10-01"), "subjects")
+  rename <- function(pal, surv = "Survival Analysis") {
+    io <- list(name_cluster = function(system, user) list(name = if (grepl("surv", user)) surv else pal,
+                                                         description = "These packages share one subject."))
+    name_groups(groups, c(c1 = 2L, c2 = 1L), ps, list(`1` = sprintf("pal%02d", 1:10)),
+                list(character(), character()), x, empty_edges(), io, st, "2026-10-26")
+  }
+  for (bad in c("Utility Functions", "A palette set", "Colour; palettes")) {
+    out <- rename(bad)
+    expect_equal(c(out$groups[[2]]$name, out$groups[[2]]$status), c("Colour palettes", "named"), info = bad)
+    expect_false("1" %in% names(out$basis), info = bad)
+  }
+  out <- rename("Survival models")
+  expect_equal(c(out$groups[[2]]$name, out$groups[[2]]$status), c("Colour palettes", "named"))
+  expect_equal(c(out$groups[[1]]$name, out$groups[[1]]$status), c("Survival analysis", "named"))
+  out <- rename("Colour palettes", surv = "An overview")
+  expect_equal(c(out$groups[[1]]$status, out$groups[[1]]$held_reason), c("held", "name_generic"))
+})
+
+test_that("a retired subject redirects only to a published heir", {
+  r <- cold(); pal <- subject_id_of(r$out, "colour-palettes"); surv <- subject_id_of(r$out, "survival-analysis")
+  jsonlite::write_json(list(classification(subject_id = surv, members = primary_of(r$out, surv), classification = "hold"),
+                            classification(subject_id = pal, members = primary_of(r$out, pal), classification = "merge", merge_with = surv)),
+                       r$vf, auto_unbox = TRUE)
+  out2 <- run_update(fake_io(r$db, r$out), withr::local_tempdir(), "weekly", r$vf, st)
+  s <- q(out2, "SELECT subject_id, status, redirect_to, size FROM subjects")
+  expect_equal(s$status[s$subject_id == surv], "held"); expect_equal(s$size[s$subject_id == surv], 60L)
+  expect_equal(s$status[s$subject_id == pal], "retired"); expect_true(is.na(s$redirect_to[s$subject_id == pal]))
+})
+
+test_that("judged status after a non-name hold comes from classification_at", {
+  g <- empty_group("c1", "a")
+  p <- typed(data.frame(subject_id = 1L, name = "Maps", status = "held", held_reason = "maintainers",
+                        named_by = "llm", classification_at = NA_character_), "subjects")
+  expect_equal(carry_name(g, p)$status, "named")
+  p$named_by <- MODEL_SHA256; p$classification_at <- "2026-11-01"
+  expect_equal(carry_name(g, p)$status, "judged")
+})
+
+test_that("a missing model logs one line and makes no naming calls", {
+  expect_message(ok <- default_io(list(model = "/nonexistent/m.gguf", llama = "llama-cli"))$can_name(),
+                 "model not found: /nonexistent/m.gguf")
+  expect_false(ok)
+  model <- withr::local_tempfile(fileext = ".gguf"); writeLines("x", model)
+  expect_message(ok <- default_io(list(model = model, llama = "/nonexistent/llama-cli"))$can_name(), "llama-cli not found")
+  expect_false(ok)
+  db <- withr::local_tempfile(fileext = ".db"); make_fixture_store(db)
+  vf <- withr::local_tempfile(fileext = ".json"); writeLines("[]", vf)
+  io <- fake_io(db, NULL); io$can_name <- function() FALSE
+  io$name_cluster <- function(system, user) stop("no call expected")
+  out <- run_update(io, withr::local_tempdir(), "weekly", vf, st)
+  expect_equal(q(out, "SELECT n_named_calls FROM pipeline_runs")$n_named_calls, 0L)
+  expect_equal(unique(q(out, "SELECT held_reason FROM subjects")$held_reason), "name_missing")
+})
+
+test_that("the CLI takes --name-cap over the default settings", {
+  a <- parse_cli(c("out/", "--mode", "weekly", "--name-cap", "5"))
+  expect_equal(a$name_cap, 5L)
+  expect_equal(cli_settings(a)$name_cap, 5L)
+  expect_equal(cli_settings(parse_cli("out/")), default_settings())
+  expect_error(parse_cli(c("out/", "--name-cap", "many")), "usage")
+  expect_error(parse_cli(c("out/", "--name-cap", "-1")), "usage")
+})
+
+test_that("chained merges pin to the final target", {
+  db <- withr::local_tempfile(fileext = ".db"); make_fixture_store(db)
+  vf <- withr::local_tempfile(fileext = ".json"); writeLines("[]", vf)
+  s12 <- modifyList(st, list(min_subject_size = 12L))
+  out <- run_update(named_io(db, NULL), withr::local_tempdir(), "weekly", vf, s12)
+  tidy <- subject_id_of(out, "tidy-collections"); pal <- subject_id_of(out, "colour-palettes")
+  surv <- subject_id_of(out, "survival-analysis")
+  jsonlite::write_json(list(classification(subject_id = tidy, members = primary_of(out, tidy), classification = "merge", merge_with = pal),
+                            classification(subject_id = pal, members = primary_of(out, pal), classification = "merge", merge_with = surv)),
+                       vf, auto_unbox = TRUE)
+  out2 <- run_update(named_io(db, out), withr::local_tempdir(), "weekly", vf, s12)
+  s <- q(out2, "SELECT subject_id, slug, status, redirect_to, size FROM subjects")
+  expect_equal(s$size[s$subject_id == surv], 77L); expect_equal(s$slug[s$subject_id == surv], "survival-analysis")
+  expect_equal(s$status[s$subject_id %in% c(tidy, pal)], c("retired", "retired"))
+  expect_equal(s$redirect_to[s$subject_id %in% c(tidy, pal)], c(surv, surv))
+})
+
+test_that("a held placeholder slug becomes a real slug when the subject is first published", {
+  db <- withr::local_tempfile(fileext = ".db"); make_fixture_store(db)
+  vf <- withr::local_tempfile(fileext = ".json"); writeLines("[]", vf)
+  out <- run_update(fake_io(db, NULL), withr::local_tempdir(), "weekly", vf, modifyList(st, list(name_cap = 1L)))
+  held <- q(out, "SELECT subject_id, slug FROM subjects WHERE status = 'held'")
+  expect_equal(held$slug, paste0("held-", held$subject_id))
+  out2 <- run_update(fake_io(db, out), withr::local_tempdir(), "weekly", vf, st)
+  s <- q(out2, sprintf("SELECT slug, name, status FROM subjects WHERE subject_id = %d", held$subject_id))
+  expect_equal(s$status, "named"); expect_equal(s$slug, make_slug(s$name, character()))
+  expect_setequal(q(out2, "SELECT slug FROM subjects")$slug, c("survival-analysis", "colour-palettes"))
+})
+
+test_that("a daily run never names, so a failing name_cluster does not stop it", {
+  r <- cold()
+  io <- fake_io(r$db, r$out); io$name_cluster <- function(system, user) stop("naming called")
+  out2 <- run_update(io, withr::local_tempdir(), "daily", r$vf, st)
+  expect_equal(nrow(q(out2, "SELECT * FROM subjects")), 2L)
+})
+
+test_that("a new package below daily_primary_share is recorded as seen but not placed", {
+  r <- cold()
+  con <- DBI::dbConnect(RSQLite::SQLite(), r$db)
+  DBI::dbExecute(con, "INSERT INTO packages (name, title, description, maintainer, imports, version, is_archived)
+    VALUES ('mixer', 'Mixer Of Things', 'Mixer of things.', 'Mix Author', 'surv01, dplyr, ggplot2, tidyr, glue', '1.0', 0)")
+  DBI::dbDisconnect(con)
+  io <- fake_io(r$db, r$out); io$today <- function() "2026-10-27"
+  out2 <- run_update(io, withr::local_tempdir(), "daily", r$vf, st)
+  expect_equal(nrow(q(out2, "SELECT * FROM subject_members WHERE package = 'mixer'")), 0L)
+  expect_equal(q(out2, "SELECT first_seen FROM seen_packages WHERE package = 'mixer'")$first_seen, "2026-10-27")
 })

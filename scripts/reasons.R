@@ -3,7 +3,8 @@
 # Text for one reason. NA kinds give NA.
 reason_text <- function(kind, value) {
   templates <- c(uses = "Uses %s", used_by = "Used by %s",
-                 title = "Its title names %s", topic = "Repository topic: %s")
+                 title = "Its title names %s", topic = "Repository topic: %s",
+                 words = "Its description mentions %s")
   out <- rep(NA_character_, length(kind))
   ok <- !is.na(kind) & kind %in% names(templates)
   out[ok] <- sprintf(templates[kind[ok]], as.character(value)[ok])
@@ -17,8 +18,9 @@ pick_best <- function(candidates, score) {
   candidates[order(-score[candidates], candidates, method = "radix")][1]
 }
 
-# One row per member, using the first rule that applies: uses, used by, title, topic.
-placement_reasons <- function(members, deps, titles, phrase, topics) {
+# One row per member, using the first rule that applies: uses, used by, title, topic, words.
+# `words` is an optional named vector from package to description_words() value.
+placement_reasons <- function(members, deps, titles, phrase, topics, words = NULL) {
   members <- as.character(members)
   if (is.null(deps)) deps <- data.frame(from = character(0), to = character(0), type = character(0))
   if (is.null(topics)) topics <- data.frame(package = character(0), topic = character(0))
@@ -61,8 +63,37 @@ placement_reasons <- function(members, deps, titles, phrase, topics) {
     } else if (!is.na(topic)) {
       kind[i] <- "topic"
       value[i] <- topic
+    } else if (!is.null(words) && m %in% names(words) && !is.na(words[[m]])) {
+      kind[i] <- "words"
+      value[i] <- words[[m]]
     }
   }
   data.frame(package = members, reason_kind = kind, reason_value = value,
              stringsAsFactors = FALSE, row.names = NULL)
+}
+
+# For each member, "A and B": its two strongest TF-IDF terms among the subject's top terms
+# (summed over the primary members) that its own description uses. Members with none are left out.
+description_words <- function(X, primary, members, descriptions, stopwords, top = 20L) {
+  none <- stats::setNames(character(), character())
+  primary <- intersect(primary, rownames(X))
+  members <- intersect(members, rownames(X))
+  if (!length(primary) || !length(members) || !ncol(X)) return(none)
+  w <- Matrix::colSums(X[primary, , drop = FALSE])
+  w <- w[w > 0]
+  if (!length(w)) return(none)
+  terms <- names(w)[order(-w, names(w), method = "radix")][seq_len(min(top, length(w)))]
+  sub <- as.matrix(X[members, terms, drop = FALSE])
+  out <- vapply(seq_along(members), function(r) {
+    v <- stats::setNames(as.numeric(sub[r, , drop = FALSE]), terms)
+    v <- v[v > 0]
+    if (length(v)) {
+      d <- descriptions[members[r]]
+      v <- v[names(v) %in% tokenize(clean_text(if (is.na(d)) "" else d), stopwords)]
+    }
+    if (!length(v)) return(NA_character_)
+    paste(names(v)[order(-v, names(v), method = "radix")][seq_len(min(2L, length(v)))], collapse = " and ")
+  }, "")
+  names(out) <- members
+  out[!is.na(out)]
 }
