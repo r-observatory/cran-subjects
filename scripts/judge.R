@@ -238,6 +238,7 @@ parse_judge_cli <- function(args) {
 }
 
 if (sys.nframe() == 0L) {
+  REPO_ROOT <- dirname(normalizePath(.judge_dir))
   args <- parse_judge_cli(commandArgs(trailingOnly = TRUE))
   if (args$command == "prepare") {
     if (!exists("default_io", mode = "function")) source(file.path(.judge_dir, "update.R"))
@@ -247,12 +248,12 @@ if (sys.nframe() == 0L) {
     state <- io$fetch_previous(work)
     if (is.null(state)) stop("no current state to judge: the current release was not found", call. = FALSE)
     inputs <- io$fetch_input(work)
-    path <- judge_prepare(state, inputs, args$out_dir, CLASSIFICATIONS_PATH, all = args$all)
+    path <- judge_prepare(state, inputs, args$out_dir, repo_path(CLASSIFICATIONS_PATH), all = args$all)
     unlink(work, recursive = TRUE)
     n <- length(readLines(path, warn = FALSE))
     message(sprintf("%d subjects to judge, queue in %s", n, path))
   } else {
-    res <- judge_merge(args$out_dir, CLASSIFICATIONS_PATH, args$model, format(Sys.time(), "%Y-%m-%d", tz = "UTC"))
-    message(sprintf("%d classifications written to %s, %d invalid", res$written, CLASSIFICATIONS_PATH, res$invalid))
+    res <- judge_merge(args$out_dir, repo_path(CLASSIFICATIONS_PATH), args$model, format(Sys.time(), "%Y-%m-%d", tz = "UTC"))
+    message(sprintf("%d classifications written to %s, %d invalid", res$written, repo_path(CLASSIFICATIONS_PATH), res$invalid))
   }
 }

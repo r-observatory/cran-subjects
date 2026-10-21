@@ -1,6 +1,6 @@
 # scripts/text.R: text links between packages from titles, descriptions and topics.
 
-load_stopwords <- function(path = "scripts/stopwords.txt") {
+load_stopwords <- function(path = repo_path("scripts", "stopwords.txt")) {
   if (!file.exists(path) && file.exists(file.path("..", "..", path))) path <- file.path("..", "..", path)
   w <- trimws(readLines(path, warn = FALSE))
   unique(w[nzchar(w)])

@@ -53,7 +53,7 @@ typed <- function(df, table) {
   out
 }
 
-run_update <- function(io, out_dir, mode = c("weekly", "daily"), classifications_path = CLASSIFICATIONS_PATH,
+run_update <- function(io, out_dir, mode = c("weekly", "daily"), classifications_path = repo_path(CLASSIFICATIONS_PATH),
                        settings = default_settings()) {
   mode <- match.arg(mode)
   say <- if (is.function(io$log)) io$log else function(msg) invisible(NULL)
@@ -712,6 +712,7 @@ default_io <- function(args, gh = gh_run) {
 }
 
 if (sys.nframe() == 0L) {
+  REPO_ROOT <-dirname(normalizePath(.script_dir))
   args <- parse_cli(commandArgs(trailingOnly = TRUE))
   run_update(default_io(args), args$out_dir, args$mode, settings = cli_settings(args))
 }

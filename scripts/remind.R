@@ -25,10 +25,13 @@ if (sys.nframe() == 0L) {
   if (length(args) != 1L) stop("usage: Rscript scripts/remind.R OUT_DIR", call. = FALSE)
   out_dir <- args[[1]]
   dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
-  for (f in c("config.R", "identity.R", "classifications.R")) source(file.path("scripts", f))
+  file_arg <- sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE))
+  script_dir <- if (length(file_arg) == 1L) dirname(normalizePath(file_arg)) else "scripts"
+  for (f in c("config.R", "identity.R", "classifications.R")) source(file.path(script_dir, f))
+  REPO_ROOT <- dirname(normalizePath(script_dir))
   status <- system2("gh", c("release", "download", "current", "--repo", "r-observatory/cran-subjects",
                             "--pattern", "cran-subjects.db", "--dir", out_dir, "--clobber"))
   if (status != 0L) stop("could not download cran-subjects.db from the current release", call. = FALSE)
-  n <- remind_write(file.path(out_dir, "cran-subjects.db"), CLASSIFICATIONS_PATH, out_dir, default_settings())
+  n <- remind_write(file.path(out_dir, "cran-subjects.db"), repo_path(CLASSIFICATIONS_PATH), out_dir, default_settings())
   message("subjects waiting: ", n)
 }

@@ -6,6 +6,12 @@ MANIFEST_FILENAME <- "manifest.json"
 INPUT_REPO <- "r-observatory/data"
 INPUT_ASSET <- "observatory.db.zst"
 CLASSIFICATIONS_PATH <- "classifications/subjects.json"
+
+# Repository files resolve against REPO_ROOT, which the command-line entry points set from the
+# script location; unset, they resolve against the working directory.
+REPO_ROOT <- NULL
+repo_path <- function(...) if (is.null(REPO_ROOT)) file.path(...) else file.path(REPO_ROOT, ...)
+
 MODEL_FILE <- "Qwen3-8B-Q4_K_M.gguf"
 MODEL_URL <- "https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf"
 MODEL_SHA256 <- "d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785"
