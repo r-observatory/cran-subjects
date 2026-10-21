@@ -1,0 +1,154 @@
+grp <- function(key, m) list(key = key, members = sort(m), name = NA, description = NA, status = "named",
+                             held_reason = NA, named_by = NA, named_at = NA, classification_at = NA, redirect_from = NA)
+v <- function(id, m, classification, ...) c(list(subject_id = id, members = sort(m), fingerprint = "x", classification = classification,
+                                     judged_at = "2026-11-01", model = "llm"), list(...))
+s <- default_settings()
+u <- sprintf("u%02d", 1:25); st <- sprintf("s%02d", 1:25)
+clique <- function(p) { m <- t(combn(p, 2)); data.frame(from = m[, 1], to = m[, 2], weight = 1) }
+e <- rbind(clique(u), clique(st), data.frame(from = "u01", to = "s01", weight = 1))
+test_that("keep names the group and removes strays", {
+  out <- apply_classifications(list(grp("k1", c(u, "data.table"))), list(v(3L, c(u, "data.table"), "keep",
+    name = "Unit testing", description = "These packages test R code.", strays = "data.table")), e, list(), s)
+  expect_equal(out[[1]]$name, "Unit testing"); expect_equal(out[[1]]$status, "judged")
+  expect_false("data.table" %in% out[[1]]$members)
+})
+test_that("hold holds", {
+  out <- apply_classifications(list(grp("k1", u)), list(v(3L, u, "hold")), e, list(), s)
+  expect_equal(out[[1]]$status, "held"); expect_equal(out[[1]]$held_reason, "classification")
+})
+test_that("split seeds parts from the LLM's groups", {
+  out <- apply_classifications(list(grp("k1", c(u, st))), list(v(3L, c(u, st), "split", groups = list(
+    list(name = "Unit testing", packages = u[1:5]), list(name = "Statistical tests", packages = st[1:5])))), e, list(), s)
+  expect_setequal(vapply(out, `[[`, "", "name"), c("Unit testing", "Statistical tests"))
+  expect_equal(sort(vapply(out, function(g) length(g$members), 1L)), c(25L, 25L))
+  expect_true(all(vapply(out, `[[`, "", "redirect_from") == "k1"))
+})
+test_that("a classification stops applying once membership drifts", {
+  out <- apply_classifications(list(grp("k1", u)), list(v(3L, c(u[1:15], sprintf("z%02d", 1:10)), "hold")), e, list(), s)
+  expect_equal(out[[1]]$status, "named")
+})
+test_that("read_classifications fails loudly", {
+  f <- withr::local_tempfile(fileext = ".json"); writeLines("{not json", f)
+  expect_error(read_classifications(f), "classifications"); expect_error(read_classifications(tempfile()), "classifications")
+})
+test_that("validate_classification keeps names with dots and digits", {
+  expect_length(validate_classification(v(3L, c("data.table", "R6"), "split", groups = list(list(name = "x", packages = "data.table")))), 0L)
+  expect_true(length(validate_classification(v(3L, "a", "split", groups = list(list(name = "x", packages = "zzz"))))) > 0L)
+})
+
+test_that("keep records the judge and its date", {
+  out <- apply_classifications(list(grp("k1", u)), list(v(3L, u, "keep", name = "Unit testing",
+    description = "These packages test R code.")), e, list(), s)
+  expect_equal(out[[1]]$description, "These packages test R code.")
+  expect_equal(out[[1]]$named_by, "llm"); expect_equal(out[[1]]$classification_at, "2026-11-01")
+  expect_equal(out[[1]]$members, u)
+})
+test_that("split parts carry the LLM's descriptions, or NA", {
+  out <- apply_classifications(list(grp("k1", c(u, st))), list(v(3L, c(u, st), "split", groups = list(
+    list(name = "Unit testing", description = "These packages test R code.", packages = u[1:5]),
+    list(name = "Statistical tests", packages = st[1:5])))), e, list(), s)
+  names(out) <- vapply(out, `[[`, "", "name")
+  expect_equal(out[["Unit testing"]]$description, "These packages test R code.")
+  expect_true(is.na(out[["Statistical tests"]]$description))
+  expect_equal(out[["Unit testing"]]$members, u); expect_equal(out[["Statistical tests"]]$members, st)
+  expect_true(all(vapply(out, `[[`, "", "status") == "judged"))
+  expect_true(all(vapply(out, `[[`, "", "named_by") == "llm"))
+  expect_equal(length(unique(vapply(out, `[[`, "", "key"))), 2L)
+})
+test_that("split drops small parts and packages with no links inside the group", {
+  m <- c(u, st[1:10], "iso")
+  out <- apply_classifications(list(grp("k1", m)), list(v(3L, m, "split", groups = list(
+    list(name = "Unit testing", packages = u[1:5]), list(name = "Statistical tests", packages = st[1:5])))), e, list(), s)
+  expect_length(out, 1L)
+  expect_equal(out[[1]]$name, "Unit testing"); expect_equal(out[[1]]$members, u)
+})
+test_that("merge joins the group matching the target's last members and takes its key", {
+  out <- apply_classifications(list(grp("k1", u), grp("k2", st)), list(v(3L, u, "merge", merge_with = 9L)), e,
+                        list(`9` = st[1:20], `4` = u), s)
+  expect_length(out, 1L)
+  expect_equal(out[[1]]$key, "k2"); expect_equal(out[[1]]$members, sort(c(u, st)))
+  expect_equal(out[[1]]$status, "named")
+})
+test_that("merge with no matching target leaves the group as it was", {
+  gs <- list(grp("k1", u), grp("k2", st))
+  out <- apply_classifications(gs, list(v(3L, u, "merge", merge_with = 9L)), e, list(`9` = sprintf("z%02d", 1:20)), s)
+  expect_equal(out, gs)
+  out <- apply_classifications(gs, list(v(3L, u, "merge", merge_with = 9L)), e, list(`9` = u), s)
+  expect_equal(out, gs)
+})
+test_that("a stray joins the other group holding enough of its links, or is dropped", {
+  e2 <- rbind(e, data.frame(from = c("s01", "s02", "s03", "u02", "u03"), to = c("x", "x", "x", "x", "y"), weight = 1))
+  out <- apply_classifications(list(grp("k1", c(u, "x", "y")), grp("k2", st)), list(v(3L, c(u, "x", "y"), "keep",
+    name = "Unit testing", description = "These packages test R code.", strays = c("x", "y"))), e2, list(), s)
+  names(out) <- vapply(out, `[[`, "", "key")
+  expect_equal(out$k1$members, u)
+  expect_equal(out$k2$members, sort(c(st, "x")))
+  expect_false("y" %in% unlist(lapply(out, `[[`, "members")))
+})
+test_that("a keep classification does not lift a hold from the automatic checks", {
+  g <- grp("k1", u); g$status <- "held"; g$held_reason <- "maintainers"
+  out <- apply_classifications(list(g), list(v(3L, u, "keep", name = "Unit testing",
+    description = "These packages test R code.")), e, list(), s)
+  expect_equal(out[[1]]$status, "held"); expect_equal(out[[1]]$held_reason, "maintainers")
+  expect_equal(out[[1]]$name, "Unit testing")
+})
+test_that("one classification applies to one group only, the best match", {
+  out <- apply_classifications(list(grp("k1", u[1:10]), grp("k2", u[11:25])), list(v(3L, u, "hold")), e, list(),
+                        modifyList(s, list(drift_jaccard = 0.3)))
+  expect_equal(vapply(out, `[[`, "", "status"), c("named", "held"))
+})
+test_that("classification_for takes the closest classification at or above the threshold", {
+  vs <- list(v(3L, u[1:20], "hold"), v(4L, u, "hold"))
+  expect_equal(classification_for(u, vs, 0.7)$subject_id, 4L)
+  expect_equal(classification_for(u[1:20], vs, 0.7)$subject_id, 3L)
+  expect_null(classification_for(st, vs, 0.7))
+  expect_null(classification_for(u, list(), 0.7))
+})
+test_that("read_classifications reads what the judge writes and rejects bad files and entries", {
+  f <- withr::local_tempfile(fileext = ".json")
+  jsonlite::write_json(list(v(3L, c("data.table", "R6"), "split", groups = list(list(name = "x", packages = "data.table"))),
+                            v(5L, u, "merge", merge_with = 9L, strays = list())), f, auto_unbox = TRUE)
+  r <- read_classifications(f)
+  expect_equal(r[[1]]$subject_id, 3L); expect_equal(r[[1]]$members, c("data.table", "R6"))
+  expect_equal(r[[1]]$groups[[1]]$packages, "data.table")
+  expect_equal(r[[2]]$merge_with, 9L); expect_equal(r[[2]]$strays, character())
+  writeLines("[]", f); expect_equal(read_classifications(f), list())
+  writeLines('{"subject_id": 3}', f); expect_error(read_classifications(f), "classifications")
+  writeLines('[{"subject_id": 3, "classification": "keep"}]', f); expect_error(read_classifications(f), "classifications")
+  jsonlite::write_json(list(v(3L, u, "hold"), v(3L, u, "hold")), f, auto_unbox = TRUE)
+  expect_error(read_classifications(f), "classifications")
+})
+test_that("validate_classification checks merge targets and where packages are placed", {
+  expect_length(validate_classification(v(3L, u, "merge", merge_with = 9L), known_ids = c(3L, 9L)), 0L)
+  expect_true(length(validate_classification(v(3L, u, "merge", merge_with = 9L), known_ids = c(3L, 4L))) > 0L)
+  expect_true(length(validate_classification(v(3L, u, "merge", merge_with = 3L))) > 0L)
+  two <- validate_classification(v(3L, u, "split", groups = list(list(name = "a", packages = u[1:2]), list(name = "b", packages = u[2:3]))))
+  expect_match(two, "u02", all = FALSE)
+  expect_true(length(validate_classification(v(3L, u, "split", groups = list(list(name = "a", packages = u[1:2])), strays = "u01"))) > 0L)
+  expect_match(validate_classification(v(3L, u, "keep", name = "n", description = "d", strays = "zzz")), "zzz", all = FALSE)
+  expect_true(length(validate_classification(v(3L, u, "keep", name = "n"))) > 0L)
+  expect_length(validate_classification(v(3L, u, "split", groups = list(list(name = "a", description = "d", packages = u[1:2])))), 0L)
+  expect_true(length(validate_classification(v(3L, u, "split", groups = list(list(name = "a", description = 4, packages = u[1:2]))))) > 0L)
+  expect_true(length(validate_classification(v(3L, u, "rename"))) > 0L)
+  expect_true(length(validate_classification(modifyList(v(3L, u, "hold"), list(judged_at = "soon")))) > 0L)
+})
+test_that("waiting_subjects lists new names, name holds and drifted classifications", {
+  p <- sprintf("p%02d", 1:10); q <- sprintf("q%02d", 1:10)
+  subj <- data.frame(subject_id = 1:8, slug = paste0("s", 1:8), name = paste("Name", 1:8), description = NA,
+    status = c("named", "held", "judged", "judged", "held", "held", "retired", "held"),
+    held_reason = c(NA, "name_generic", NA, NA, "classification", "classification", NA, "maintainers"),
+    named_by = NA, named_at = NA, classification_at = NA, first_seen = "2026-10-01", last_seen = "2026-10-20",
+    redirect_to = NA, size = 10L)
+  mem <- function(id, pk, primary = 1L, left = NA) data.frame(subject_id = id, package = pk, is_core = 0L,
+    is_primary = primary, reason_kind = NA, reason_value = NA, joined = "2026-10-01", left = left)
+  m <- rbind(mem(3L, p), mem(3L, q, primary = 0L), mem(3L, paste0("r", 1:10), left = "2026-10-15"),
+             mem(4L, c(p[1:5], q[1:5])), mem(5L, p), mem(6L, q), mem(7L, q), mem(8L, q))
+  vs <- list(v(3L, p, "keep", name = "n", description = "d"), v(4L, p, "keep", name = "n", description = "d"),
+             v(5L, p, "hold"), v(6L, p, "hold"), v(7L, p, "keep", name = "n", description = "d"), v(8L, p, "hold"))
+  w <- waiting_subjects(subj, m, vs, s)
+  expect_named(w, c("subject_id", "slug", "name", "why"))
+  expect_equal(w$subject_id, c(1L, 2L, 4L, 6L))
+  expect_equal(w$why, c("new name", "held: name_generic", "drifted", "drifted"))
+  expect_equal(w$slug, c("s1", "s2", "s4", "s6"))
+  expect_equal(nrow(waiting_subjects(subj[0, ], m[0, ], list(), s)), 0L)
+})
