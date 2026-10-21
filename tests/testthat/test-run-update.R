@@ -266,13 +266,41 @@ test_that("a retired subject redirects only to a published heir", {
   expect_equal(s$status[s$subject_id == pal], "retired"); expect_true(is.na(s$redirect_to[s$subject_id == pal]))
 })
 
-test_that("judged status after a non-name hold comes from classification_at", {
+test_that("a carried name publishes as named, since no classification applies to it this run", {
   g <- empty_group("c1", "a")
-  p <- typed(data.frame(subject_id = 1L, name = "Maps", status = "held", held_reason = "maintainers",
-                        named_by = "llm", classification_at = NA_character_), "subjects")
+  p <- typed(data.frame(subject_id = 1L, name = "Maps", status = "judged", named_by = "llm",
+                        classification_at = "2026-11-01"), "subjects")
   expect_equal(carry_name(g, p)$status, "named")
-  p$named_by <- MODEL_SHA256; p$classification_at <- "2026-11-01"
-  expect_equal(carry_name(g, p)$status, "judged")
+  p$status <- "held"; p$held_reason <- "classification"
+  expect_equal(carry_name(g, p)$status, "named")
+  p$held_reason <- "maintainers"
+  expect_equal(carry_name(g, p)$status, "named")
+  p$held_reason <- "name_generic"
+  expect_equal(c(carry_name(g, p)$status, carry_name(g, p)$held_reason), c("held", "name_generic"))
+})
+
+test_that("a judged subject whose keep classification has lapsed comes back named and waits", {
+  r <- cold(); pal <- subject_id_of(r$out, "colour-palettes")
+  write_classification(r$vf, subject_id = pal, members = primary_of(r$out, pal), classification = "keep",
+                name = "Colour scales", description = "These packages give colour scales for plots.")
+  archive <- function(names) {
+    con <- DBI::dbConnect(RSQLite::SQLite(), r$db)
+    DBI::dbExecute(con, sprintf("UPDATE packages SET is_archived = 1 WHERE name IN ('%s')", paste(names, collapse = "','")))
+    DBI::dbDisconnect(con)
+  }
+  run <- function(prev) run_update(fake_io(r$db, prev), withr::local_tempdir(.local_envir = parent.frame()), "weekly", r$vf, st)
+  out2 <- run(r$out)
+  expect_equal(q(out2, sprintf("SELECT status FROM subjects WHERE subject_id = %d", pal))$status, "judged")
+  # 25 of the classification's 30 members remain, so the classification still applies and the basis becomes those 25.
+  archive(sprintf("pal%02d", 26:30)); out3 <- run(out2)
+  expect_equal(q(out3, sprintf("SELECT status FROM subjects WHERE subject_id = %d", pal))$status, "judged")
+  # 20 remain: 20/30 is below drift_jaccard for the classification, while 20/25 keeps the name.
+  archive(sprintf("pal%02d", 21:25)); out4 <- run(out3)
+  s <- q(out4, sprintf("SELECT * FROM subjects WHERE subject_id = %d", pal))
+  expect_equal(c(s$status, s$name, s$slug), c("named", "Colour scales", "colour-palettes"))
+  w <- waiting_subjects(q(out4, "SELECT * FROM subjects"), q(out4, "SELECT * FROM subject_members"),
+                        read_classifications(r$vf), st)
+  expect_true(pal %in% w$subject_id)
 })
 
 test_that("a missing model logs one line and makes no naming calls", {

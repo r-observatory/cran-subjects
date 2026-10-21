@@ -266,13 +266,12 @@ carry_name <- function(g, p) {
   g$named_at <- p$named_at
   g$classification_at <- p$classification_at
   g$held_reason <- NA_character_
-  if (p$status %in% PUBLISHED) {
-    g$status <- p$status
-  } else if (p$held_reason %in% c("name_generic", "name_duplicate")) {
+  # No keep or split classification applies this run, so a carried name is never judged.
+  if (!p$status %in% PUBLISHED && p$held_reason %in% c("name_generic", "name_duplicate")) {
     g$status <- "held"
     g$held_reason <- p$held_reason
   } else {
-    g$status <- if (is.na(p$classification_at)) "named" else "judged"
+    g$status <- "named"
   }
   g
 }

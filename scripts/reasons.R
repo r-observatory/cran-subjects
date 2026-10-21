@@ -73,7 +73,8 @@ placement_reasons <- function(members, deps, titles, phrase, topics, words = NUL
 }
 
 # For each member, "A and B": its two strongest TF-IDF terms among the subject's top terms
-# (summed over the primary members) that its own description uses. Members with none are left out.
+# (summed over the primary members) that its own description uses, neither nesting in the other.
+# Members with none are left out.
 description_words <- function(X, primary, members, descriptions, stopwords, top = 20L) {
   none <- stats::setNames(character(), character())
   primary <- intersect(primary, rownames(X))
@@ -92,7 +93,18 @@ description_words <- function(X, primary, members, descriptions, stopwords, top 
       v <- v[names(v) %in% tokenize(clean_text(if (is.na(d)) "" else d), stopwords)]
     }
     if (!length(v)) return(NA_character_)
-    paste(names(v)[order(-v, names(v), method = "radix")][seq_len(min(2L, length(v)))], collapse = " and ")
+    # Take the strongest two, skipping a term whose words nest in a picked one or hold it.
+    picked <- character()
+    for (t in names(v)[order(-v, names(v), method = "radix")]) {
+      wt <- strsplit(t, " ", fixed = TRUE)[[1]]
+      nests <- vapply(picked, function(p) {
+        wp <- strsplit(p, " ", fixed = TRUE)[[1]]
+        all(wt %in% wp) || all(wp %in% wt)
+      }, NA)
+      if (!any(nests)) picked <- c(picked, t)
+      if (length(picked) == 2L) break
+    }
+    paste(picked, collapse = " and ")
   }, "")
   names(out) <- members
   out[!is.na(out)]

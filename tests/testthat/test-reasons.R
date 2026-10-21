@@ -118,6 +118,15 @@ test_that("description_words takes a package's two strongest top terms that its 
   expect_equal(w[["p2"]], "kaplan")
   expect_false("p3" %in% names(w)); expect_false("p4" %in% names(w))
 })
+test_that("description_words skips a term that nests in an already picked one", {
+  terms <- c("bootstrap", "measurement", "measurement error")
+  X <- Matrix::sparseMatrix(i = c(1, 1, 1, 2, 2), j = c(3, 2, 1, 3, 2), x = c(0.9, 0.8, 0.5, 0.9, 0.8),
+                            dims = c(2, 3), dimnames = list(c("p1", "p2"), terms))
+  desc <- c(p1 = "Measurement error with bootstrap.", p2 = "Measurement error.")
+  w <- description_words(X, c("p1", "p2"), c("p1", "p2"), desc, character())
+  expect_equal(w[["p1"]], "measurement error and bootstrap")
+  expect_equal(w[["p2"]], "measurement error")
+})
 test_that("output keeps member order with reset row names", {
   m <- c("zz", "aa", "mm")
   r <- placement_reasons(m, NULL, character(0), NA, NULL)

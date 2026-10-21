@@ -66,7 +66,7 @@ tfidf_matrix <- function(docs, stopwords, min_df, max_df) {
 # Randomized SVD, seeded without touching the global RNG.
 embed <- function(X, dim, seed) {
   withr::local_seed(seed)
-  s <- irlba::svdr(X, k = min(dim, min(dim(X)) - 1L))
+  s <- irlba::svdr(X, k = min(dim, min(dim(X)) - 1L), it = 10L)
   Z <- s$u %*% diag(s$d, nrow = length(s$d))
   # A package with no terms stays at zero instead of normalising rounding noise.
   Z[Matrix::rowSums(abs(X)) == 0, ] <- 0
