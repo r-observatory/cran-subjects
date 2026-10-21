@@ -127,3 +127,18 @@ make_fixture_store <- function(path, n_per_subject = 30L, extra = list()) {
   for (tbl in names(extra)) DBI::dbWriteTable(con, tbl, extra[[tbl]], append = TRUE)
   invisible(path)
 }
+
+# Shared by the run_update and judge tests.
+fake_io <- function(input, previous, names = list(surv = "Survival Analysis", pal = "Colour Palettes Tools")) list(
+  fetch_input = function(dir) input, fetch_previous = function(dir) previous, today = function() "2026-10-26",
+  name_cluster = function(system, user) {
+    k <- if (grepl("surv", user)) "surv" else "pal"
+    list(name = names[[k]], description = "These packages share one subject.") })
+# max_df is raised because 30 of the fixture's 75 documents share each subject's words.
+st <- modifyList(default_settings(), list(resolution = 1, svd_dim = 10L, max_df = 0.9))
+q <- function(db, sql) { con <- DBI::dbConnect(RSQLite::SQLite(), db); on.exit(DBI::dbDisconnect(con)); DBI::dbGetQuery(con, sql) }
+cold <- function() {
+  db <- withr::local_tempfile(fileext = ".db", .local_envir = parent.frame()); make_fixture_store(db)
+  vf <- withr::local_tempfile(fileext = ".json", .local_envir = parent.frame()); writeLines("[]", vf)
+  list(db = db, vf = vf, out = run_update(fake_io(db, NULL), withr::local_tempdir(.local_envir = parent.frame()), "weekly", vf, st))
+}
