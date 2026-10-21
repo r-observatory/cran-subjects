@@ -140,7 +140,20 @@ Rscript tests/testthat.R                 # unit tests
 
 ## Numbers
 
-The figures from the first full run are recorded here.
+These figures come from the first full run on 21 Oct 2026, against the data release of 20 Oct 2026.
+
+| Figure | Value |
+|---|---:|
+| Current CRAN packages | 25,406 |
+| Subjects published (judged) | 175 |
+| Subjects held | 7 |
+| Subjects retired (by splits) | 54 |
+| CRAN packages in at least one published subject | 24,133 |
+| Member rows with no stated reason | 415 of 26,267 |
+| Collections (package and organization) | 45 (25 and 20) |
+| Collection mentions | 222 |
+
+The first pass named 122 clusters with the open model in 1,086 seconds on an Apple M2 Max GPU. the LLM then judged all 124 subjects (64 keep, 53 split, 7 hold), and a second pass applied the classifications. A cold weekly pass without naming takes about 300 seconds on the same machine.
 
 ## Caveats
 
