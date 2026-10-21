@@ -24,7 +24,19 @@ test_that("link_shares and second_memberships use the share of link weight", {
   s <- link_shares(e, asg)
   expect_equal(s$share[s$package == "x" & s$cluster == 1L], 0.75)
   expect_equal(nrow(second_memberships(s, asg, min_share = 0.30)), 0L)
-  expect_equal(nrow(second_memberships(s, asg, min_share = 0.20)), 1L)
+  low <- second_memberships(s, asg, min_share = 0.20)
+  expect_equal(nrow(low), 1L)
+  expect_equal(low$package, "x")
+  expect_equal(low$cluster, 2L)
+})
+
+test_that("second_memberships keeps every qualifying cluster and needs a primary link", {
+  e <- data.frame(from = c("x", "x", "x", "y"), to = c("p", "q", "r", "q"), weight = c(2, 1, 1, 1))
+  asg <- data.frame(package = c("x", "p", "q", "r", "y"), cluster = c(1L, 1L, 2L, 3L, 1L))
+  sec <- second_memberships(link_shares(e, asg), asg, min_share = 0.20)
+  expect_equal(sec$package, c("x", "x"))
+  expect_equal(sec$cluster, c(2L, 3L))
+  expect_equal(rownames(sec), c("1", "2"))
 })
 
 test_that("subject_core takes members used by at least three others", {

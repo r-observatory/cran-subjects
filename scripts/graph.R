@@ -68,15 +68,14 @@ link_shares <- function(edges, assignment) {
   s
 }
 
-# Best other cluster per package with share >= min_share, for packages linked into their own cluster.
+# Every non-primary cluster with share >= min_share, for packages linked into their own cluster.
 second_memberships <- function(shares, primary, min_share) {
-  cl <- setNames(primary$cluster, primary$package)
   s <- shares
-  own <- paste(s$package, s$cluster) %in% paste(primary$package, primary$cluster)
+  own <- s$cluster == primary$cluster[match(s$package, primary$package)]
+  own[is.na(own)] <- FALSE
   linked <- unique(s$package[own])
-  s <- s[!own & s$package %in% linked & s$share >= min_share - 1e-12, , drop = FALSE]
-  s <- s[order(s$package, -s$share, s$cluster, method = "radix"), , drop = FALSE]
-  s <- s[!duplicated(s$package), c("package", "cluster"), drop = FALSE]
+  s <- s[!own & s$package %in% linked & s$share >= min_share - 1e-12, c("package", "cluster"), drop = FALSE]
+  s <- s[order(s$package, s$cluster, method = "radix"), , drop = FALSE]
   rownames(s) <- NULL
   s
 }
