@@ -1,0 +1,6 @@
+mk <- function(counts) setNames(rep(paste("M", seq_along(counts)), counts), sprintf("p%02d", seq_len(sum(counts))))
+s <- default_settings()
+test_that("five maintainers with no majority pass", { m <- mk(c(4, 4, 4, 4, 4)); expect_true(maintainer_check(names(m), m, s)) })
+test_that("four maintainers fail", { m <- mk(c(5, 5, 5, 5)); expect_false(maintainer_check(names(m), m, s)) })
+test_that("one maintainer holding more than half fails", { m <- mk(c(11, 2, 2, 2, 2, 1)); expect_false(maintainer_check(names(m), m, s)) })
+test_that("case and spacing do not split one maintainer", { expect_equal(normalise_maintainer(c(" Ann  Lee", "ann lee")), c("ann lee", "ann lee")) })
