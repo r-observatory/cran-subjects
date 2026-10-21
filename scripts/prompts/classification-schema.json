@@ -1,0 +1,23 @@
+{
+  "type": "object",
+  "properties": {
+    "classification": {"type": "string", "enum": ["keep", "split", "merge", "hold"]},
+    "name": {"type": "string"},
+    "description": {"type": "string"},
+    "merge_with": {"type": "integer"},
+    "groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {"type": "string"},
+          "description": {"type": "string"},
+          "packages": {"type": "array", "items": {"type": "string"}}
+        },
+        "required": ["name", "packages"]
+      }
+    },
+    "strays": {"type": "array", "items": {"type": "string"}}
+  },
+  "required": ["classification"]
+}
