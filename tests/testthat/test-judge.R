@@ -57,6 +57,34 @@ test_that("merge writes valid classifications and reports the invalid", {
   expect_length(read_classifications(p$vf), 1L)
 })
 
+test_that("strays from the last classification that the raw cluster still holds stay strays and stay in the members", {
+  z <- cold()
+  id <- prepared(z)$queue[[1]]$subject_id
+  m <- prepared(z)$queue[[1]]$members
+  m <- as.character(unlist(m))
+  gone <- m[1:3]
+  con <- DBI::dbConnect(RSQLite::SQLite(), z$out)
+  DBI::dbExecute(con, sprintf("DELETE FROM subject_members WHERE subject_id = %d AND package IN ('%s')", id,
+                              paste(gone, collapse = "','")))
+  DBI::dbDisconnect(con)
+  out <- withr::local_tempdir()
+  vf <- withr::local_tempfile(fileext = ".json")
+  jsonlite::write_json(list(list(subject_id = id, members = I(m), fingerprint = "x", classification = "keep",
+                                 name = "Old name", description = "These packages fit old models.", strays = I(gone), judged_at = "2026-10-01", model = "llm")),
+                       vf, auto_unbox = TRUE)
+  judge_prepare(z$out, z$db, out, vf, settings = st)
+  q <- read_lines_json(file.path(out, "judge-queue.jsonl"))
+  e <- q[[which(vapply(q, function(x) as.integer(x$subject_id), 1L) == id)]]
+  expect_setequal(unlist(e$carried), gone)
+  expect_false(any(gone %in% unlist(e$members)))
+  write_lines_json(list(keep_answer(e, strays = list(m[4]))), file.path(out, "judge-answers.jsonl"))
+  res <- judge_merge(out, vf, "llm", "2026-11-01")
+  expect_equal(res$invalid, 0L)
+  v <- Filter(function(x) as.integer(x$subject_id) == id, read_classifications(vf))[[1]]
+  expect_setequal(unlist(v$members), m)
+  expect_setequal(unlist(v$strays), c(gone, m[4]))
+})
+
 test_that("merge replaces an older answer for the same subject", {
   p <- prepared(cold())
   id <- p$queue[[1]]$subject_id

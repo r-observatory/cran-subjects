@@ -61,6 +61,21 @@ judge_prompt <- function(subject, members, inputs, edges, close_names, settings,
                        if (length(close_names)) paste(close_names, collapse = ", ") else "none"))
 }
 
+# Strays of the subject's latest classification that its raw cluster still holds. The weekly run matches a
+# classification against the raw cluster, strays and all, so a new answer records them too.
+carried_strays <- function(id, members, classifications, clusters) {
+  mine <- Filter(function(v) identical(as.integer(v[["subject_id"]]), as.integer(id)), classifications)
+  if (is.null(clusters) || !nrow(clusters) || !length(mine)) return(character())
+  when <- vapply(mine, function(v) as.character(v[["judged_at"]]), "")
+  v <- mine[[order(when, decreasing = TRUE, method = "radix")[1]]]
+  k <- clusters$cluster[match(members, clusters$package)]
+  k <- k[!is.na(k)]
+  if (!length(k)) return(character())
+  home <- as.integer(names(which.max(table(k))))
+  sort(setdiff(intersect(as.character(unlist(v[["strays"]])), clusters$package[clusters$cluster == home]), members),
+       method = "radix")
+}
+
 # The packages name_prompt showed, read back from its bullet lines.
 listed_in_prompt <- function(prompt) {
   head <- sub("\n\nPhrases common in their titles.*$", "", prompt)
@@ -95,6 +110,7 @@ judge_prepare <- function(state_path, inputs_path, out_dir, classifications_path
                            close_subjects(subjects, id, words), settings, gram_df)
     lines <- c(lines, json_line(list(
       subject_id = id, slug = todo$slug[r], name = nm, members = I(m), fingerprint = members_fingerprint(m),
+      carried = I(carried_strays(id, m, classifications, state$weekly_clusters)),
       listed = I(listed_in_prompt(prompt)), prompt = prompt)))
   }
   dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
@@ -160,6 +176,7 @@ judge_merge <- function(out_dir, classifications_path, model, today) {
   queue <- lapply(queue, function(q) {
     q$members <- as.character(unlist(q$members))
     q$listed <- as.character(unlist(q$listed))
+    q$carried <- as.character(unlist(q$carried))
     q
   })
   names(queue) <- vapply(queue, function(q) as.character(q$subject_id), "")
@@ -196,6 +213,10 @@ judge_merge <- function(out_dir, classifications_path, model, today) {
     if (length(err)) {
       invalid[[length(invalid) + 1L]] <- list(subject_id = e$subject_id, errors = I(err), answer = a)
     } else {
+      if (length(q$carried)) {
+        e$members <- sort(union(e$members, q$carried), method = "radix")
+        e$strays <- sort(union(as.character(unlist(e$strays)), q$carried), method = "radix")
+      }
       valid[[key]] <- e
     }
   }
