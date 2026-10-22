@@ -34,7 +34,8 @@ placement_reasons <- function(members, deps, titles, phrase, topics, words = NUL
   users[names(counts)] <- as.integer(counts)
 
   tp <- data.frame(package = as.character(topics$package), topic = as.character(topics$topic))
-  tp <- unique(tp[tp$package %in% members & !is.na(tp$topic), , drop = FALSE])
+  tp <- unique(tp[tp$package %in% members & !is.na(tp$topic) &
+                 !(tolower(tp$topic) %in% GENERIC_TOPICS), , drop = FALSE])
   shared <- table(tp$topic)
   shared_count <- setNames(as.integer(shared), names(shared))
   shared_topics <- names(shared_count)[shared_count >= 3]

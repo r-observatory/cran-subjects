@@ -156,3 +156,14 @@ test_that("output keeps member order with reset row names", {
   expect_equal(names(r), c("package", "reason_kind", "reason_value"))
   expect_equal(rownames(r), as.character(1:3))
 })
+test_that("a generic repository topic is never a reason", {
+  members <- c("a1", "a2", "a3", "b1")
+  topics <- data.frame(package = c("a1", "a2", "a3", "a1", "a2", "a3", "b1"),
+                       topic = c("r", "r", "r", "spatial", "spatial", "spatial", "rstats"))
+  deps <- data.frame(from = character(0), to = character(0))
+  titles <- setNames(rep("Something", 4), members)
+  rs <- placement_reasons(members, deps, titles, NA_character_, topics)
+  expect_equal(rs$reason_kind[rs$package == "a1"], "topic")
+  expect_equal(rs$reason_value[rs$package == "a1"], "spatial")
+  expect_false(any(rs$reason_value %in% GENERIC_TOPICS))
+})
