@@ -2,7 +2,7 @@
 
 This pipeline finds subjects among CRAN packages for the R Observatory site. A subject is a group of packages that belong together, found from package text, repository topics and dependencies. The pipeline also finds community collections, such as the tidyverse, where a community has already declared its own set of packages. Subjects and collections are kept apart, task views are not changed, and Bioconductor packages keep their biocViews.
 
-It reads the latest `observatory.db` from the `r-observatory/data` release. Each week it clusters current CRAN packages with TF-IDF, randomized SVD, nearest neighbours and dependency links, keeps each subject's id and slug stable from run to run, and names new subjects with a free open model, Qwen3 8B, run by llama.cpp with both pinned by SHA-256. Each month the LLM classifies every subject inside the coding agent as keep, split, merge or hold, and those classifications in `classifications/subjects.json` are applied on the next weekly run. Each day it places new packages into existing subjects and finds collections again. The data is written to a SQLite database and published to the `r-observatory/cran-subjects` GitHub repository for downstream consumers.
+It reads the latest `observatory.db` from the `r-observatory/data` release. Each week it clusters current CRAN packages with TF-IDF, randomized SVD, nearest neighbours and dependency links, keeps each subject's id and slug stable from run to run, and names new subjects with a free open model, Qwen3 8B, run by llama.cpp with both pinned by SHA-256. Each month an LLM classifies every subject as keep, split, merge or hold, and those classifications in `classifications/subjects.json` are applied on the next weekly run. Each day it places new packages into existing subjects and finds collections again. The data is written to a SQLite database and published to the `r-observatory/cran-subjects` GitHub repository for downstream consumers.
 
 ## Data Access
 
@@ -69,11 +69,11 @@ for row in con.execute("""
 
 ```sh
 Rscript scripts/update.R out/ --mode weekly   # weekly run, daily with --mode daily
-Rscript scripts/judge.R prepare out/judge/    # monthly, from /judge-subjects in the coding agent
+Rscript scripts/judge.R prepare out/judge/    # monthly, from /judge-subjects
 Rscript tests/testthat.R                      # unit tests
 ```
 
-Each month a reminder issue lists the subjects waiting for a classification. Run `/judge-subjects` in the coding agent in this repository, then commit `classifications/subjects.json`.
+Each month a reminder issue lists the subjects waiting for a classification. Run `/judge-subjects` in this repository, then commit `classifications/subjects.json`.
 
 ## Feedback
 

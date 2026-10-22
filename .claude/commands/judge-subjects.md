@@ -12,6 +12,6 @@ Judge the subjects that are waiting for a classification. Do these steps in orde
    - With more than 30 entries, dispatch subagents with 30 entries each. Give each one the system text, the schema and its entries. Each returns one JSON line per entry, matching the schema with `subject_id` added.
    - With 30 entries or fewer, judge them in this session.
 4. Write every answer line to `out/judge/judge-answers.jsonl`.
-5. Run `Rscript scripts/judge.R merge out/judge/ --model <this session's model id>`.
+5. Run `Rscript scripts/judge.R merge out/judge/ --model llm`.
 6. If `out/judge/judge-invalid.jsonl` has entries, answer those subjects again with their errors in view, append the new answers to `out/judge/judge-answers.jsonl`, and run the merge once more. Do this once only.
 7. Report the counts by classification, and say that `classifications/subjects.json` is ready for the owner to commit. Never commit or push.

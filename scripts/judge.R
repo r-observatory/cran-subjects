@@ -1,7 +1,7 @@
 #!/usr/bin/env Rscript
 # scripts/judge.R: prepare the monthly judging queue and merge the answers into classifications/subjects.json.
 #
-# A coding agent session answers the queue (see .claude/commands/judge-subjects.md). Nothing here calls a model.
+# The /judge-subjects command answers the queue in a coding agent session. Nothing here calls a model.
 .judge_file <- function() {
   for (i in rev(seq_len(sys.nframe()))) {
     of <- sys.frame(i)$ofile

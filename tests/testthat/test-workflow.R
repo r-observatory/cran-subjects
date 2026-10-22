@@ -75,3 +75,11 @@ test_that("the workflow holds no key and no secret other than the token", {
   used <- regmatches(txt, gregexpr("secrets\\.[A-Za-z_]+", txt))[[1]]
   expect_true(all(used == "secrets.GITHUB_TOKEN"))
 })
+
+test_that("every publish rewrites the release notes from the run", {
+  build <- workflow_step(workflow_text(), "Build the subjects database")
+  expect_match(build, "Rscript scripts/notes.R out/", fixed = TRUE)
+  publish <- workflow_step(workflow_text(), "Publish to the \"current\" release")
+  expect_match(publish, "--notes-file out/release-notes.md --latest", fixed = TRUE)
+  expect_match(publish, "gh release edit current --notes-file out/release-notes.md", fixed = TRUE)
+})
