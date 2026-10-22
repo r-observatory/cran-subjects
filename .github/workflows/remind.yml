@@ -13,6 +13,8 @@ jobs:
   remind:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      LANG: C.UTF-8
     steps:
       - uses: actions/checkout@v7
       - uses: r-lib/actions/setup-r@v2

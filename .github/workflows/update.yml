@@ -33,6 +33,8 @@ jobs:
   update:
     runs-on: ubuntu-latest
     timeout-minutes: 330
+    env:
+      LANG: C.UTF-8
     steps:
       - uses: actions/checkout@v7
       - name: Set the mode
@@ -62,14 +64,19 @@ jobs:
             any::withr
       - name: Run unit tests
         run: Rscript tests/testthat.R
+      # Naming setup may fail: without llama-cli or the model the run goes on without naming.
       - name: Install llama.cpp
         if: env.MODE == 'weekly'
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           gh release download "$LLAMA_TAG" --repo ggml-org/llama.cpp --pattern "$LLAMA_ASSET" --dir .
-          echo "$LLAMA_SHA256  $LLAMA_ASSET" | sha256sum -c -
+          if ! echo "$LLAMA_SHA256  $LLAMA_ASSET" | sha256sum -c -; then
+            rm -f "$LLAMA_ASSET"
+            exit 1
+          fi
           mkdir -p llama
           tar -xzf "$LLAMA_ASSET" -C llama
           cli=$(find llama -name llama-cli -type f | head -n 1)
@@ -77,22 +84,31 @@ jobs:
           echo "$(cd "$(dirname "$cli")" && pwd)" >> "$GITHUB_PATH"
       - name: Restore the model
         if: env.MODE == 'weekly'
-        id: model-cache
+        continue-on-error: true
         uses: actions/cache@v6
         with:
-          path: models/Qwen3-8B-Q4_K_M.gguf
+          path: ${{ env.MODEL_PATH }}
           key: qwen3-8b-q4km-d98cdcbd
-      - name: Download the model
-        if: env.MODE == 'weekly' && steps.model-cache.outputs.cache-hit != 'true'
-        run: |
-          set -euo pipefail
-          mkdir -p models
-          curl -L --fail --retry 3 -o "$MODEL_PATH" "$MODEL_URL"
-      - name: Check the model
+      - name: Download and check the model
         if: env.MODE == 'weekly'
+        continue-on-error: true
         run: |
           set -euo pipefail
-          echo "$MODEL_SHA256  $MODEL_PATH" | sha256sum -c -
+          mkdir -p "$(dirname "$MODEL_PATH")"
+          # A cached copy that fails the check is fetched again.
+          if [ -f "$MODEL_PATH" ] && ! echo "$MODEL_SHA256  $MODEL_PATH" | sha256sum -c -; then
+            rm -f "$MODEL_PATH"
+          fi
+          if [ ! -f "$MODEL_PATH" ]; then
+            if ! curl -L --fail --retry 3 -o "$MODEL_PATH" "$MODEL_URL"; then
+              rm -f "$MODEL_PATH"
+              exit 1
+            fi
+            if ! echo "$MODEL_SHA256  $MODEL_PATH" | sha256sum -c -; then
+              rm -f "$MODEL_PATH"
+              exit 1
+            fi
+          fi
       - name: Build the subjects database
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
