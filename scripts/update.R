@@ -260,6 +260,15 @@ classification_effects <- function(groups, after, classifications, prev_members,
     to <- keys[order(-held, keys, method = "radix")][1]
     if (!to %in% names(fx$pin)) fx$pin[to] <- into
   }
+  # A keep holds the subject it judged, even when its strays leave it unlike last week's members.
+  for (i in hit) {
+    v <- classifications[[pick[i]]]
+    id <- as.integer(v[["subject_id"]])
+    key <- groups[[i]]$key
+    if (v[["classification"]] != "keep" || !key %in% keys || key %in% names(fx$pin) ||
+        !as.character(id) %in% names(prev_members) || id %in% c(fx$split, fx$gone, fx$pin)) next
+    fx$pin[key] <- id
+  }
   fx
 }
 

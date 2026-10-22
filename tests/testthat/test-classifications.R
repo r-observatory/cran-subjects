@@ -173,6 +173,22 @@ test_that("a part under 20 packages stays only while it keeps 10 of last week's 
                                       list(`7` = u, `8` = c(st[1:15], sprintf("y%02d", 1:16))), s, last), 1L)
 })
 
+test_that("a keep holds the subject it judged even when its strays leave it unlike last week's members", {
+  junk <- sprintf("j%02d", 1:20)
+  g <- grp("k1", c(u[1:15], junk))
+  ps <- data.frame(subject_id = c(7L, 9L))
+  keep7 <- v(7L, c(u[1:15], junk), "keep", name = "Unit testing", strays = junk)
+  prev <- list(`7` = c(u[1:12], junk), `9` = st)
+  after <- apply_classifications(list(g), list(keep7), e, prev, s)
+  expect_equal(after[[1]]$members, u[1:15])
+  fx <- classification_effects(list(g), after, list(keep7), prev, s)
+  expect_equal(unname(assign_ids(after, prev, ps, fx, s)), 7L)
+  # A keep for a subject that is no longer live gives a new id.
+  keep8 <- v(8L, c(u[1:15], junk), "keep", name = "Unit testing", strays = junk)
+  fx <- classification_effects(list(g), after, list(keep8), prev, s)
+  expect_equal(unname(assign_ids(after, prev, ps, fx, s)), 10L)
+})
+
 test_that("one classification applies to one group only, the best match", {
   out <- apply_classifications(list(grp("k1", u[1:10]), grp("k2", u[11:25])), list(v(3L, u, "hold")), e, list(),
                         modifyList(s, list(drift_jaccard = 0.3)))
