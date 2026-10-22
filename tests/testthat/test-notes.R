@@ -7,6 +7,7 @@ test_that("release notes give the run's figures and assets", {
   expect_match(notes, "- **2** named by the open model and waiting for a classification", fixed = TRUE)
   expect_match(notes, "Last run: weekly | updated 2026-10-26 03:41 UTC.", fixed = TRUE)
   expect_match(notes, "Assets: `cran-subjects.db` (SQLite) and `manifest.json`.", fixed = TRUE)
+  expect_match(notes, "kept on a `snapshot-YYYY-MM` release", fixed = TRUE)
 })
 
 test_that("release notes use the singular for one", {

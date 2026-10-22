@@ -132,6 +132,20 @@ jobs:
           fi
           gh release upload current out/cran-subjects.db out/manifest.json --clobber
           gh release edit current --notes-file out/release-notes.md
+      - name: Keep the month's snapshot release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Each month keeps its last state, so any month can be restored.
+          month="snapshot-$(date -u +%Y-%m)"
+          cp classifications/subjects.json out/classifications.json
+          if ! gh release view "$month" >/dev/null 2>&1; then
+            gh release create "$month" --title "CRAN Subjects $(date -u +%Y-%m)" \
+              --notes-file out/release-notes.md --latest=false
+          fi
+          gh release upload "$month" out/cran-subjects.db out/manifest.json out/classifications.json --clobber
+          gh release edit "$month" --notes-file out/release-notes.md
 
   keepalive:
     # GitHub disables a public repository's scheduled workflows after 60 days

@@ -83,3 +83,11 @@ test_that("every publish rewrites the release notes from the run", {
   expect_match(publish, "--notes-file out/release-notes.md --latest", fixed = TRUE)
   expect_match(publish, "gh release edit current --notes-file out/release-notes.md", fixed = TRUE)
 })
+
+test_that("every publish also keeps the month's snapshot release", {
+  snap <- workflow_step(workflow_text(), "Keep the month's snapshot release")
+  expect_match(snap, "snapshot-$(date -u +%Y-%m)", fixed = TRUE)
+  expect_match(snap, "cp classifications/subjects.json out/classifications.json", fixed = TRUE)
+  expect_match(snap, "--latest=false", fixed = TRUE)
+  expect_match(snap, "out/cran-subjects.db out/manifest.json out/classifications.json --clobber", fixed = TRUE)
+})

@@ -53,7 +53,7 @@ for row in con.execute("""
 
 ## Output
 
-`cran-subjects.db` and `manifest.json` are published on the rolling `current` release. The manifest carries `db_filename`, `db_bytes`, `db_sha256`, `tables` and `complete`.
+`cran-subjects.db` and `manifest.json` are published on the rolling `current` release. The manifest carries `db_filename`, `db_bytes`, `db_sha256`, `tables` and `complete`. Each month's last state is also kept on a `snapshot-YYYY-MM` release, with a copy of that month's classifications as `classifications.json`, so any month can be restored.
 
 - `subjects` - one row per subject: `subject_id`, `slug`, `name`, `description`, `status`, `held_reason`, `named_by`, `named_at`, `classification_at`, `first_seen`, `last_seen`, `redirect_to`, `size`. The status is `held`, `named`, `judged` or `retired`, and only `named` and `judged` rows are published. A slug never changes once published, and a retired subject keeps its row with `redirect_to` pointing at the subject that took most of its members.
 - `subject_members` - one row per package in a subject: `subject_id`, `package`, `is_core`, `is_primary`, `reason_kind`, `reason_value`, `joined`, `left`. A package can sit in more than one subject, and `is_primary` marks its main one. `reason_kind` and `reason_value` hold the plain fact behind the placement. Former members are kept with a `left` date.

@@ -33,7 +33,7 @@ release_notes <- function(db_path, updated_at = format(Sys.time(), "%Y-%m-%d %H:
     "",
     sprintf("Last run: %s | updated %s. Names come from Qwen3 8B (Apache 2.0), and an LLM classifies every subject each month.", run$mode, updated_at),
     "",
-    "Assets: `cran-subjects.db` (SQLite) and `manifest.json`."
+    "Assets: `cran-subjects.db` (SQLite) and `manifest.json`. Each month's last state is kept on a `snapshot-YYYY-MM` release, with a copy of that month's classifications as `classifications.json`."
   ), collapse = "\n")
 }
 
