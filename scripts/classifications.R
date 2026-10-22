@@ -176,7 +176,7 @@ judge_group <- function(g, v, name, description) {
 # Label propagation inside the group, seeded and fixed at the LLM's placements. Other linked members
 # start in last week's part of the same name from this classification, so parts hold steady; a part
 # with no placed package here, or a name that does not pick out one subject, gives no start. A part
-# under the entry size stays while it still carries last week's part.
+# under the entry size stays while it still carries last week's published part.
 split_group <- function(g, v, edges, settings, prev_members = list(), prev_subjects = NULL) {
   members <- g$members
   e <- edges[edges$from %in% members & edges$to %in% members, , drop = FALSE]
@@ -209,7 +209,8 @@ split_group <- function(g, v, edges, settings, prev_members = list(), prev_subje
   for (j in seq_along(cg)) {
     pm <- members[which(part == j)]
     if (length(pm) < settings$min_subject_size &&
-        (is.na(was[j]) || !keeps_subject(pm, prev_members[[was[j]]], settings))) next
+        (is.na(was[j]) || !prev_subjects$status[match(as.integer(was[j]), prev_subjects$subject_id)] %in% PUBLISHED ||
+         !keeps_subject(pm, prev_members[[was[j]]], settings))) next
     d <- cg[[j]][["description"]]
     p <- g
     p$key <- paste0(g$key, "/", j)

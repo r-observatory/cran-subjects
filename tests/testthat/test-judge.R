@@ -83,6 +83,7 @@ test_that("strays from the last classification that the raw cluster still holds 
   v <- Filter(function(x) as.integer(x$subject_id) == id, read_classifications(vf))[[1]]
   expect_setequal(unlist(v$members), m)
   expect_setequal(unlist(v$strays), c(gone, m[4]))
+  expect_equal(v$fingerprint, members_fingerprint(m))
 })
 
 test_that("merge replaces an older answer for the same subject", {

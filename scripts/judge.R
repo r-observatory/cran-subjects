@@ -216,6 +216,7 @@ judge_merge <- function(out_dir, classifications_path, model, today) {
       if (length(q$carried)) {
         e$members <- sort(union(e$members, q$carried), method = "radix")
         e$strays <- sort(union(as.character(unlist(e$strays)), q$carried), method = "radix")
+        e$fingerprint <- members_fingerprint(e$members)
       }
       valid[[key]] <- e
     }

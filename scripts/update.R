@@ -150,6 +150,9 @@ weekly_pass <- function(prev, inputs, classifications, io, settings, today, tick
   after <- apply_classifications(groups, classifications, edges, prev_members, settings, ps)
   fx <- classification_effects(groups, after, classifications, prev_members, settings)
   ids <- assign_ids(after, prev_members, ps, fx, settings)
+  kept <- drop_new_small(after, ids, prev_members, settings)
+  after <- kept$groups
+  ids <- kept$ids
   tick("classifications and matching")
 
   titles <- stats::setNames(pk$title, pk$name)
@@ -227,7 +230,8 @@ candidate_groups <- function(cl, packages, settings, keep = list()) {
 classification_effects <- function(groups, after, classifications, prev_members, settings) {
   fx <- list(split = stats::setNames(integer(), character()), gone = integer(),
              pin = stats::setNames(integer(), character()),
-             named = vapply(classifications, function(v) as.integer(v[["subject_id"]]), 1L))
+             named = as.integer(unlist(lapply(classifications, function(v) c(v[["subject_id"]], v[["merge_with"]])))))
+  fx$named <- fx$named[!is.na(fx$named)]
   if (!length(groups) || !length(classifications)) return(fx)
   pick <- match_classifications(groups, classifications, settings$drift_jaccard)
   keys <- vapply(after, `[[`, "", "key")
@@ -291,6 +295,14 @@ assign_ids <- function(after, prev_members, ps, fx, settings) {
   fresh <- sort(keys[is.na(ids)], method = "radix")
   ids[fresh] <- max(c(0L, ps$subject_id, fx$named)) + seq_along(fresh)
   ids
+}
+
+# A group under the entry size stays only while it carries a previous subject, so no new subject starts small.
+drop_new_small <- function(groups, ids, prev_members, settings) {
+  keep <- vapply(groups, function(g) {
+    length(g$members) >= settings$min_subject_size || as.character(ids[[g$key]]) %in% names(prev_members)
+  }, NA)
+  list(groups = groups[keep], ids = ids[vapply(groups[keep], `[[`, "", "key")])
 }
 
 # Last run's name for a group, with the status that goes with it; NULL when it had none.

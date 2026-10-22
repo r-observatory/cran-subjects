@@ -206,6 +206,25 @@ test_that("a new subject never takes an id that a classification names", {
   after <- apply_classifications(list(grp("k1", u)), list(keep12), e, list(`9` = st), s)
   fx <- classification_effects(list(grp("k1", u)), after, list(keep12), list(`9` = st), s)
   expect_equal(unname(assign_ids(after, list(`9` = st), ps, fx, s)), 13L)
+  into15 <- v(3L, u, "merge", merge_with = 15L)
+  fx <- classification_effects(list(), list(), list(into15), list(), s)
+  expect_equal(unname(assign_ids(list(grp("k1", u)), list(), ps, fx, s)), 16L)
+})
+
+test_that("a group under 20 packages that carries no previous subject is dropped", {
+  ids <- c(k1 = 7L, k2 = 10L, k3 = 11L)
+  out <- drop_new_small(list(grp("k1", u[1:12]), grp("k2", u[13:24]), grp("k3", st)), ids, list(`7` = u[1:14]), s)
+  expect_equal(vapply(out$groups, `[[`, "", "key"), c("k1", "k3"))
+  expect_equal(out$ids, c(k1 = 7L, k3 = 11L))
+})
+
+test_that("a small part stays only when last week's part was published", {
+  m <- c(u, st[1:15])
+  cv <- v(3L, m, "split", groups = list(list(name = "Unit testing", packages = u[1:5]),
+                                        list(name = "Statistical tests", packages = st[1:5])))
+  last <- data.frame(subject_id = c(7L, 8L), name = c("Unit testing", "Statistical tests"),
+                     classification_at = "2026-11-01", status = c("judged", "held"))
+  expect_length(apply_classifications(list(grp("k1", m)), list(cv), e, list(`7` = u, `8` = st[1:20]), s, last), 1L)
 })
 
 test_that("one classification applies to one group only, the best match", {
