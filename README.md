@@ -99,9 +99,9 @@ Each new cluster is matched to last week's subjects by overlap. A matched subjec
 
 A free open model, Qwen3 8B (Apache 2.0), names new subjects. It is run by llama.cpp b11669 with `--no-jinja`. The model file and the llama.cpp build are pinned by SHA-256 in `scripts/config.R`, and the hash is checked after every download. There is no API key or secret anywhere in this repository.
 
-The weekly run names a subject when it is new or has drifted. It names at most 40 subjects per run, so a run stays well inside the job limit. The model sees up to 40 member titles, the distinctive title phrases and the overlapping task views, and answers with a name and a one-sentence description in JSON.
+The weekly run names a subject when it is new or has drifted. It names at most 40 subjects per run and starts no naming call after 150 minutes, so a run stays well inside the job limit. The model sees up to 40 member titles, the distinctive title phrases and the overlapping task views, and answers with a name and a one-sentence description in JSON.
 
-Code then applies the rules to the answer. Names go to sentence case with acronyms and package names kept. Generic tail words are removed. A name made only of generic words holds the subject back. Two subjects with near-duplicate names are both held back. If the model file cannot be fetched or the model gives no valid answer, new subjects stay held back and are retried next run. Naming never fails the run, and published subjects keep their names.
+Code then applies the rules to the answer. Names go to sentence case with acronyms and package names kept. Generic tail words are removed. A name made only of generic words holds the subject back, and so does an answer without a usable one-sentence description. Two subjects with near-duplicate names are both held back. If the model file cannot be fetched or the model gives no valid answer, new subjects stay held back and are retried next run. Naming never fails the run, and published subjects keep their names.
 
 A subject named this way and passing every check has the status `named`.
 
@@ -138,6 +138,22 @@ Rscript scripts/judge.R prepare out/judge/   # monthly, from /judge-subjects
 Rscript tests/testthat.R                 # unit tests
 ```
 
+### First publish
+
+Each run reads the last state from the `current` release, and a weekly run that finds no release starts cold with new ids. So the release is seeded by hand from the local runs in `out2/` before the schedule takes over.
+
+1. Commit `classifications/subjects.json`.
+2. Push.
+3. Create the release from the seeded files:
+
+   ```sh
+   gh release create current --repo r-observatory/cran-subjects --title "CRAN Subjects (rolling)" \
+     --notes "Subject groups and collections among CRAN packages." out2/cran-subjects.db out2/manifest.json
+   ```
+
+4. Only then let the schedule run.
+5. Read the first Monday run's log, and compare `pipeline_runs` and the counts by status against the seeded release.
+
 ## Numbers
 
 These figures come from the first full run on 21 Oct 2026, against the data release of 20 Oct 2026.
@@ -149,7 +165,7 @@ These figures come from the first full run on 21 Oct 2026, against the data rele
 | Subjects held | 7 |
 | Subjects retired (by splits) | 54 |
 | CRAN packages in at least one published subject | 24,133 |
-| Member rows with no stated reason | 415 of 26,267 |
+| Member rows in published subjects with no stated reason | 388 of 26,267 |
 | Collections (package and organization) | 45 (25 and 20) |
 | Collection mentions | 222 |
 
