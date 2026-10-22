@@ -1755,13 +1755,13 @@
   },
   {
     "subject_id": 110,
-    "members": ["BayesForge", "CA3variants", "CAbiplot", "CAinterprTools", "CAs", "CAvariants", "Desimml", "Formula", "GPAbin", "IIVpredictor", "ISEtools", "JuliaCall", "MCAtools", "MCAvariants", "MicroMacroMultilevel", "SCAtools", "SynDI", "TideHarmonics", "TripleR", "allMT", "anacor", "bedrock", "bml", "brulee", "ca", "cabootcrs", "caplot", "caresid", "cncaGUI", "contentValidity", "corona", "crc32c", "cre.dcf", "cyphr", "dietr", "dissCqN", "dragracer", "ecoreg", "enrollcast", "foodquotient", "fsbrain", "gimme", "gmp", "hubUtils", "interca", "levelSets", "luz", "multiselect", "nhlscraper", "oecdoda", "outstandR", "potools", "quickpsy", "rJava", "reconstructKM", "retroglyph", "rip.opencv", "rsyslog", "shoredate", "stapler", "zeallot"],
-    "fingerprint": "dcc3d579073f8271c2778208d49f845729e5c908fcc39850dbe5d24b4c337aaf",
+    "members": ["BCGcalc", "BayesForge", "CA3variants", "CAbiplot", "CAinterprTools", "CAs", "CAvariants", "CMapViz", "Desimml", "EIEntropy", "Formula", "GPAbin", "ISEtools", "JuliaCall", "LandComp", "MCAtools", "MCAvariants", "MicroMacroMultilevel", "MonoPhy", "PKNCA", "SynDI", "TideHarmonics", "TripleR", "allMT", "anacor", "bedrock", "bml", "brulee", "ca", "cabootcrs", "caplot", "caresid", "cncaGUI", "contentValidity", "corona", "crc32c", "cre.dcf", "cyphr", "dietr", "dissCqN", "dragracer", "ecolRxC", "ecoreg", "ei", "ei.Datasets", "eiCircles", "eiIT", "eiPack", "eiballots", "eiopt2", "enrollcast", "foodquotient", "fsbrain", "genset", "gimme", "gmp", "gsloid", "hubUtils", "interca", "levelSets", "lphom", "luz", "multiselect", "neuRosim", "nhlscraper", "oecdoda", "outstandR", "potools", "quickpsy", "rJava", "reconstructKM", "request", "retroglyph", "rip.opencv", "rsyslog", "selenium", "shoredate", "soc.ca", "stapler", "zeallot"],
+    "fingerprint": "30c8449f6e13846a0a221a1da884b6c65333e3c8ec7ce796dc25cb676e4b08d9",
     "classification": "keep",
     "name": "Correspondence analysis",
-    "description": "Packages for simple, multiple and three-way correspondence analysis of contingency tables and their biplot displays.",
-    "strays": ["CAs", "gmp", "luz", "zeallot", "BayesForge", "Desimml", "Formula", "IIVpredictor", "ISEtools", "JuliaCall", "MicroMacroMultilevel", "SCAtools", "SynDI", "TideHarmonics", "TripleR", "allMT", "bedrock", "bml", "brulee", "contentValidity", "corona", "crc32c", "cre.dcf", "cyphr", "dietr", "dissCqN", "dragracer"],
-    "judged_at": "2026-10-21",
+    "description": "These packages compute and plot correspondence analysis and its multiple, canonical and three-way variants.",
+    "strays": ["BCGcalc", "BayesForge", "CAs", "CMapViz", "Desimml", "EIEntropy", "Formula", "ISEtools", "JuliaCall", "LandComp", "MicroMacroMultilevel", "MonoPhy", "PKNCA", "SynDI", "TideHarmonics", "TripleR", "allMT", "bedrock", "bml", "brulee", "contentValidity", "corona", "crc32c", "cre.dcf", "cyphr", "dietr", "dissCqN", "dragracer", "ecolRxC", "ecoreg", "ei", "ei.Datasets", "eiCircles", "eiIT", "eiPack", "eiballots", "eiopt2", "enrollcast", "foodquotient", "fsbrain", "genset", "gimme", "gmp", "gsloid", "hubUtils", "levelSets", "lphom", "luz", "multiselect", "neuRosim", "zeallot"],
+    "judged_at": "2026-10-22",
     "model": "llm"
   },
   {
@@ -1788,13 +1788,13 @@
   },
   {
     "subject_id": 113,
-    "members": ["BetterReg", "BiVariAn", "CBPE", "CLRtools", "CatReg", "FuzzyLogit", "HTLR", "IsingFit", "LGDtoolkit", "LKT", "LOCOM2", "LiblineaR", "LogRegEquiv", "LogisticCopula", "LogisticRCI", "MHTrajectoryR", "MIAmaxent", "MNLR", "MTLR", "ORTH.Ord", "OddsPlotty", "OncoBayes2", "OrdFacReg", "PELVIS", "PrivateLR", "RRMLRfMC", "RegrCoeffsExplorer", "Rprofet", "SAMBA", "SIMPLE.REGRESSION", "SOR", "SightabilityModel", "TwoStepCLogit", "aplore3", "bclogit", "blorr", "bridgedist", "chest", "cond", "distrom", "elo", "elrm", "fastLogisticRegressionWrap", "fido", "glmtree", "lboxcox", "lineagefreq", "ljr", "logiBin", "logihist", "logistf", "logistic4p", "lorbridge", "mactivate", "milr", "misaem", "mob", "mvboxcox", "nestedLogit", "nplr", "npmr", "penalizedclr", "plotor", "prLogistic", "rbin", "reglogit", "repolr", "reportReg", "saws", "svymargins", "tlm", "vaxpmx"],
-    "fingerprint": "2b324c1e8e2ff72ff0112052fe0b811f0177fdf2c54e531dbb1efca389a69f12",
+    "members": ["BCgee", "BetterReg", "BiVariAn", "CBPE", "CLRtools", "CatReg", "CrossCarry", "FuzzyLogit", "GEEaSPU", "HTLR", "IsingFit", "LGDtoolkit", "LKT", "LOCOM2", "LiblineaR", "LogRegEquiv", "LogisticCopula", "LogisticRCI", "MHTrajectoryR", "MIAmaxent", "MNLR", "MTLR", "ORTH.Ord", "OddsPlotty", "OncoBayes2", "OrdFacReg", "PELVIS", "PrivateLR", "RRMLRfMC", "RegrCoeffsExplorer", "Rprofet", "SAMBA", "SIMPLE.REGRESSION", "SOR", "ShiftHappens", "SightabilityModel", "SimCorMultRes", "TwoStepCLogit", "aftgee", "aod", "aods3", "aplore3", "bclogit", "blorr", "bridgedist", "calibmsm", "chest", "cond", "cvGEE", "deli", "distrom", "drgee", "elo", "elrm", "extraterrestrial", "fastFGEE", "fastLogisticRegressionWrap", "fido", "free", "geeM", "geeasy", "geepack", "geer", "geess", "geessbin", "geex", "glmtree", "ham", "lboxcox", "lineagefreq", "ljr", "logiBin", "logihist", "logistf", "logistic4p", "lorbridge", "mactivate", "mgee2", "milr", "misaem", "mob", "multgee", "mvboxcox", "nestedLogit", "nplr", "npmr", "penalizedclr", "pgee.mixed", "plotor", "prLogistic", "presmTP", "psfmi", "qif", "rbin", "reglogit", "repolr", "reportReg", "saws", "sgee", "svymargins", "swgee", "tern.gee", "tlm", "vaxpmx"],
+    "fingerprint": "8473c95185149f169cbc6547a387d6aab9b2c398aa2f38c3c5f4f78c9605e943",
     "classification": "keep",
     "name": "Logistic regression",
-    "description": "Packages for fitting, penalising, diagnosing and visualising binary, multinomial and conditional logistic regression models.",
-    "strays": ["BiVariAn", "chest", "LGDtoolkit", "IsingFit"],
-    "judged_at": "2026-10-21",
+    "description": "These packages fit, diagnose and visualise logistic regression models for binary and multinomial outcomes.",
+    "strays": ["geepack", "geeasy", "tern.gee", "geeM", "aftgee", "swgee", "BCgee", "CrossCarry", "GEEaSPU", "BiVariAn", "IsingFit", "LGDtoolkit", "MIAmaxent", "RegrCoeffsExplorer"],
+    "judged_at": "2026-10-22",
     "model": "llm"
   },
   {
@@ -1824,13 +1824,13 @@
   },
   {
     "subject_id": 115,
-    "members": ["BusinessDuration", "ISO11784Tools", "ISOweek", "Jmisc", "MMWRweek", "MazamaCoreUtils", "RApiDatetime", "RJalaliDate", "RcppBDT", "RcppDate", "SASdates", "TDPanalysis", "actuaryr", "adheRenceRX", "ageg", "anytime", "aoristic", "astroFns", "aweek", "bigD", "busdater", "carbondate", "checkstring", "chron", "clock", "coffee", "contoso", "cropgrowdays", "cstime", "date", "date4ts", "datefixR", "datetime", "datetimeoffset", "datetimeutils", "datetoiso", "dateutils", "datey", "dialr", "dint", "dttr2", "era", "ethiodate", "eye", "fptdApprox", "galisats", "holideh", "humanFormat", "iso8601", "jalcal", "jcalendaR", "ksformat", "lazybar", "lubridate", "lubrilog", "lutz", "messydates", "mixtime", "mondate", "nanotime", "neatR", "neatRanges", "numform", "parsedate", "parttime", "pregnancy", "prettyunits", "rcarbon", "rebus.datetimes", "shide", "skymodelr", "solartime", "splusTimeDate", "tbrf", "theRefdate", "timeDate", "timechange", "timeperiodsR", "tind", "tipa", "tweenr", "tzdb", "unexcel", "unstruwwel", "vegperiod", "vvconverter", "when", "wktmo", "ymd"],
-    "fingerprint": "37b4b66121b531be8db5c8f12e5a8634f0fa6e342a2bc876b3036d9437541673",
+    "members": ["BusinessDuration", "Jmisc", "MBmca", "MMWRweek", "MazamaCoreUtils", "MetaboQC", "NORMAgene", "PCRedux", "RApiDatetime", "RDML", "RJalaliDate", "RcppBDT", "RcppDate", "SASdates", "SunCalcMeeus", "TDPanalysis", "TWW", "actuaryr", "adheRenceRX", "ageg", "anytime", "aoristic", "astroFns", "aweek", "batsch", "bigD", "boggy", "busdater", "chipPCR", "clock", "coffee", "contoso", "cropgrowdays", "cstime", "date", "date4ts", "datefixR", "datetime", "datetimeoffset", "datetimeutils", "datetoiso", "dateutils", "datey", "decorators", "dint", "dpcR", "dttr2", "dundermifflin", "era", "ethiodate", "fptdApprox", "galisats", "getDTeval", "grates", "guescini", "holideh", "iso8601", "jalcal", "jcalendaR", "karlen", "ksformat", "lamW", "lazybar", "lievens", "lubridate", "lubrilog", "lutz", "messydates", "mixtime", "mondate", "nanotime", "neatR", "neatRanges", "nowcast", "parsedate", "parttime", "pregnancy", "prettyunits", "qPCRtools", "qpcR", "rebus.datetimes", "ruijter", "rutledge", "shide", "sisti", "skymodelr", "solartime", "sonify", "splusTimeDate", "suncalc", "tbrf", "theRefdate", "timeDate", "timechange", "timeperiodsR", "tind", "tipa", "trackclean", "tweenr", "tzdb", "unexcel", "unstruwwel", "vegperiod", "vermeulen", "vvconverter", "when", "wktmo", "ymd"],
+    "fingerprint": "4bffa2f530651bd760b6430302d769d6feaf859a47d6383b8d53d7ac5a9a33da",
     "classification": "keep",
     "name": "Date and time handling",
-    "description": "Packages for parsing, converting, rounding and calculating with dates, times, time zones and calendars.",
-    "strays": ["adheRenceRX", "pregnancy", "eye", "vvconverter", "ISO11784Tools", "Jmisc", "cropgrowdays", "MazamaCoreUtils"],
-    "judged_at": "2026-10-21",
+    "description": "These packages parse, convert and compute with dates, times, time zones and calendars.",
+    "strays": ["PCRedux", "chipPCR", "MBmca", "qpcR", "dpcR", "RDML", "adheRenceRX", "MazamaCoreUtils", "SunCalcMeeus", "actuaryr", "aoristic", "cropgrowdays", "solartime", "suncalc", "trackclean", "vvconverter"],
+    "judged_at": "2026-10-22",
     "model": "llm"
   },
   {
@@ -1938,6 +1938,81 @@
     "fingerprint": "c65edf9f033b2d885d2f4dbcba6f661919c3766e6e135ef7540a7546ee1f4d96",
     "classification": "hold",
     "judged_at": "2026-10-21",
+    "model": "llm"
+  },
+  {
+    "subject_id": 169,
+    "members": ["ARCHISSUR", "AurieLSHGaussian", "BKP", "BSPBSS", "BayesGP", "BayesGPfit", "BayesNSGP", "CGGP", "CGP", "DGP4LCF", "DNAmf", "EzGP", "FastGP", "FastGaSP", "FastSegmentation", "GEMSS", "GPCsign", "GPGame", "GPP", "GPTreeO", "GPareto", "GPfit", "GPvecchia", "GaSP", "GauPro", "GeneralizedWendland", "GpGp", "IGPFrailty", "ISPAT3D", "LVGP", "LinkedGASP", "MagmaClustR", "PricingBandits", "Qapprox", "RiskMap", "RobustGaSP", "SCFMonitor", "SDALGCP2", "SLGP", "SimSST", "TAG", "approximator", "bhetGP", "bigGP", "binaryGP", "bsamGP", "cocons", "convoSPAT", "deepgp", "deform", "dgpsi", "dynemu", "emulator", "funGp", "gaussquad", "gplite", "gpss", "gptoolsStan", "greta.gp", "hetGP", "hypergeo", "inlabru", "kergp", "laGP", "lgpr", "localgauss", "magi", "magp", "mlegp", "ngme2", "pGPx", "plgp", "psgp", "puff", "quadriceps", "rptR", "rts2", "shrinkGPR", "shrinkem", "spectralGP", "stelfi", "stilt", "tgp", "twingp", "varycoef"],
+    "fingerprint": "99468c83da6a38b697b7ea733ee01ef74ebcf32c511a1ebc00be8245f9f2f39b",
+    "classification": "keep",
+    "name": "Gaussian process models",
+    "description": "These packages fit, approximate and apply Gaussian process models, often as emulators of computer experiments.",
+    "strays": ["BSPBSS", "AurieLSHGaussian"],
+    "judged_at": "2026-10-22",
+    "model": "llm"
+  },
+  {
+    "subject_id": 177,
+    "members": ["CRANsearcher", "DescToolsAddIns", "IRdisplay", "JSconsole", "MRG", "MakefileR", "PacketLLM", "ProfessR", "RGIFT", "RepoGenerator", "SIAtools", "ViewPipeSteps", "aceEditor", "actxps", "addinsJoaoMelo", "addinsOutline", "addinslist", "agua", "anybadger", "bolder", "bracketeer", "brickster", "buildr", "carrier", "cartogram", "chatgpt", "checker", "cnd", "codestral", "codriver", "colourpicker", "connections", "cppcheckR", "cronR", "datadictionary", "datapasta", "disposables", "dockerfiler", "dplyrAssist", "eatATA", "esquisse", "evitaicossa", "fig", "findInFiles", "flashr", "foodwebr", "g.data", "geoheatmap", "ggplotAssist", "ggtibble", "greekLetters", "gridstackeR", "hexSticker", "hexsession", "hippie", "ixplorer", "jjb", "job", "jshintr", "jsmodule", "jsonNormalize", "litteR", "llmcoder", "logrxaddin", "lorem", "meme", "mergenstudio", "moveEZ", "myownrobs", "objectremover", "oolong", "origin", "password", "pasteAsComment", "pkgKitten", "pmxcode", "progress", "pylintR", "randomizeBE", "rasciidoc", "ravel", "raybevel", "rdoxygen", "remedy", "representr", "rpkgkit", "rqti", "rscontract", "rskey", "rspm", "rstudio.prefs", "rstudioapi", "rstudiothemes", "rvisual", "sankeywheel", "script", "settingsSync", "shortcuts", "shorts", "smvr", "snahelper", "spAddins", "startupmsg", "stoppingrule", "taskscheduleR", "term", "testthis", "this.path", "todor", "toxpiR", "whereami", "workflowsets", "zoteR"],
+    "fingerprint": "40629ae9583bdbe9b5db209ab93beff658da01ce8dd433b6a3b0487ed0ec0a20",
+    "classification": "keep",
+    "name": "RStudio IDE integration",
+    "description": "These packages add addins, gadgets and AI assistants to the RStudio editor.",
+    "strays": ["colourpicker", "progress", "raybevel", "RepoGenerator"],
+    "judged_at": "2026-10-22",
+    "model": "llm"
+  },
+  {
+    "subject_id": 230,
+    "members": ["CatDyn", "EdSurvey", "FSA", "FSAdata", "LBSPR", "RFishBC", "SAMtool", "TDIagree", "TropFishR", "aLBI", "braQCA", "ecoval", "fishmethods", "intsvy", "multiSA", "oldr", "optistock", "pawscore", "phuassess", "r4ss", "scape", "ss3sim"],
+    "fingerprint": "03730c3091c33faa5b71ceb03d335948b2cf6008f9e297cba62844cfd3aaf5d3",
+    "classification": "keep",
+    "name": "Fish stock assessment",
+    "description": "These packages fit and simulate stock assessment models from fishery catch, age and length data.",
+    "strays": ["EdSurvey", "TDIagree", "braQCA", "ecoval", "intsvy", "oldr", "pawscore", "phuassess"],
+    "judged_at": "2026-10-22",
+    "model": "llm"
+  },
+  {
+    "subject_id": 231,
+    "members": ["BB", "Cyclops", "DHSr", "DWDLargeR", "DensParcorr", "ILSAmerge", "ILSAstats", "IterativeHardThresholding", "LOGAN", "LSAmitR", "LikertMakeR", "MRFA", "OlinkAnalyzeVignettes", "QuICSeedR", "RALSA", "RSpectra", "Rrepest", "SGP", "benford", "bigutilsr", "compost", "dfsaneacc", "ediblecity", "eimpute", "exploratory", "fastnet", "geozarr", "idmact", "lsReg", "lsasim", "mrbsizeR", "prWarp", "rARPACK", "rainfarmr", "rapidphylo", "remotePARTS", "scrypt", "simphony"],
+    "fingerprint": "bd0bdb66025d150344eba5da372e4872229e0b4f29d3d33ef72f3a9360b009dd",
+    "classification": "keep",
+    "name": "Large-scale educational assessments",
+    "description": "These packages download, merge and analyse data from international large-scale assessments in education.",
+    "strays": ["RSpectra", "Cyclops", "IterativeHardThresholding", "bigutilsr", "rARPACK", "BB", "DHSr", "DWDLargeR", "DensParcorr", "LikertMakeR", "MRFA", "OlinkAnalyzeVignettes", "QuICSeedR", "benford", "compost", "dfsaneacc", "ediblecity", "eimpute", "exploratory", "fastnet", "geozarr", "lsReg", "mrbsizeR", "prWarp", "rainfarmr", "rapidphylo", "remotePARTS", "scrypt", "simphony"],
+    "judged_at": "2026-10-22",
+    "model": "llm"
+  },
+  {
+    "subject_id": 238,
+    "members": ["AHPGaussian", "AHPWR", "AHPhybrid", "AHPtools", "ARPobservation", "CBASSED50", "CPP", "CSMES", "ClaimsProblems", "DEXiR", "DUToolkit", "EvCombR", "Fluidigm", "FoRDM", "FuzzyAHP", "FuzzyR", "GeoFIS", "IFMCDM", "IHSEP", "IPPP", "KraljicMatrix", "MDPtoolbox", "MRHawkes", "Observation", "PAMpal", "PROMETHEE", "PSIM", "PhotoGEA", "PhysActBedRest", "PhysicalActivity", "PtProcess", "RAppArmor", "RHawkes", "RLogicalOps", "RMCDA", "Rfuzzycoco", "STICr", "Sojourn", "TopSisWM", "WtTopsis", "aggreCAT", "agop", "ahpsurvey", "ahptopsis2n", "aihuman", "appraise", "arcpbf", "bdpar", "bioacoustics", "bpmnVisualizationR", "bupaR", "callr", "cercospoRa", "cogmod", "cohorts", "createLogicalPCM", "ddModel", "decision", "decisionSupport", "dematel", "eam", "easyAHP", "ecpromethee", "edeaR", "ethnobotanyR", "exploreR", "finiteruinprob", "fitzRoy", "fucom", "getLattes", "ggdmcLikelihood", "gpbiometrics", "greenfeedr", "hBayesDM", "hawkes", "highriskzone", "ibelief", "impactr", "imprecise101", "ipsfs", "isoorbi", "ldmppr", "lobsteR", "mabacR", "markowitz", "masc", "mau", "mcdabench", "mctq", "mpathsenser", "multinomineq", "multiobjectiveMDP", "nhppp", "nice", "obfuscatoR", "palm", "pawacc", "phoenix", "pid", "pkgload", "pomdp", "pomdpSolve", "pompp", "poseticDataAnalysis", "ppdiag", "ppgam", "pro", "processcheckR", "processmapR", "processmonitR", "processpredictR", "processx", "promethee123", "qapproach", "rafsi", "remss", "rmerec", "rwisp", "sapevom", "sarsop", "scindex", "seismic", "simcross", "smaa", "statConfR", "stoichcalc", "topsis", "waspasR"],
+    "fingerprint": "c93082947e598aafd36e1d8a3c81ab098b96c460ecc9e94b5b329c459ee3cc23",
+    "classification": "split",
+    "groups": [
+      {
+        "name": "Process mining",
+        "description": "These packages analyse, map, monitor and check business process event logs.",
+        "packages": ["edeaR", "bupaR", "processcheckR", "processmapR", "processmonitR", "processpredictR"]
+      },
+      {
+        "name": "Multi-criteria decision analysis",
+        "description": "These packages rank alternatives against several criteria with pairwise comparison, outranking and fuzzy decision methods.",
+        "packages": ["AHPGaussian", "AHPWR", "AHPhybrid", "AHPtools", "CPP", "DEXiR", "FoRDM", "FuzzyAHP", "IFMCDM", "KraljicMatrix", "PROMETHEE"]
+      }
+    ],
+    "judged_at": "2026-10-22",
+    "model": "llm"
+  },
+  {
+    "subject_id": 241,
+    "members": ["AntibodyForests", "BBmisc", "EDCimport", "HighFive", "PROJ", "RJDemetra", "Rraven", "RsSimulx", "Rttf2pt1", "boiwsa", "ceas", "crc32c", "descomponer", "foundry", "ggdemetra", "hotspot", "hudr", "jsslintr", "kdry", "kgen", "mark", "mlmRev", "multbxxc", "pkgcheck", "rFUSION", "readsdr", "ribiosPlot", "rjd3filters", "rjd3jars", "rjd3production", "rjd3providers", "rjd3toolkit", "rjd3tramoseats", "rjd3workspace", "rjd3x13", "rjd3xjars", "rjdmarkdown", "rjdworkspace", "rjwsacruncher", "rsatscan", "rswipl", "scbursts", "seasonal", "seasonalview", "softbib", "speakr", "srr", "statnet.common", "wnominate", "x12", "x13binary"],
+    "fingerprint": "a404a851c1f2a03fafa6a574504c8253b541af1884716c605a8c62c86cbeb7c4",
+    "classification": "keep",
+    "name": "Seasonal adjustment",
+    "description": "These packages run, inspect and report seasonal adjustment of time series with X-13 and JDemetra+.",
+    "strays": ["pkgcheck", "srr", "AntibodyForests", "BBmisc", "EDCimport", "HighFive", "PROJ", "Rraven", "RsSimulx", "Rttf2pt1", "ceas", "crc32c", "foundry", "hotspot", "hudr", "jsslintr", "kdry", "kgen", "mark", "mlmRev", "multbxxc"],
+    "judged_at": "2026-10-22",
     "model": "llm"
   }
 ]
