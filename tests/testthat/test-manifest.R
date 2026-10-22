@@ -78,14 +78,15 @@ test_that("export_db creates every table with its columns", {
   con <- DBI::dbConnect(RSQLite::SQLite(), db); on.exit(DBI::dbDisconnect(con))
   expect_setequal(DBI::dbListTables(con), c("subjects", "subject_members", "subject_name_basis",
     "subject_task_views", "collections", "collection_members", "collection_mentions",
-    "seen_packages", "pipeline_runs"))
+    "seen_packages", "pipeline_runs", "weekly_clusters"))
   expect_true("held_reason" %in% DBI::dbListFields(con, "subjects"))
+  expect_equal(DBI::dbListFields(con, "weekly_clusters"), c("package", "cluster"))
 })
 
 test_that("default_settings carries every constant", {
   s <- default_settings()
   expect_named(s, c("title_weight", "min_df", "max_df", "svd_dim", "knn_k", "knn_min_sim",
-    "resolution", "seed", "iterations", "min_subject_size", "min_maintainers",
+    "resolution", "seed", "iterations", "start_iterations", "min_subject_size", "min_maintainers",
     "max_maintainer_share", "second_share", "daily_primary_share", "core_min_users",
     "core_large_subject", "core_top_fraction", "match_jaccard", "drift_jaccard",
     "name_cap", "name_members", "name_budget_s", "loc_r_max", "org_min_packages"))

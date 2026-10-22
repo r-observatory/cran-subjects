@@ -2,9 +2,12 @@
 
 STATE_TABLES <- c("subjects", "subject_members", "subject_name_basis", "subject_task_views",
                   "collections", "collection_members", "collection_mentions",
-                  "seen_packages", "pipeline_runs")
+                  "seen_packages", "pipeline_runs", "weekly_clusters")
+# States written before weekly_clusters existed lack it, and their next weekly run clusters from scratch.
+OPTIONAL_STATE_TABLES <- "weekly_clusters"
 
-# Every state table as a data frame. NULL path is a cold start; anything unreadable stops.
+# Every state table as a data frame, NULL for a missing optional one. NULL path is a cold start;
+# anything unreadable stops.
 read_state <- function(path) {
   if (is.null(path)) return(NULL)
   if (!file.exists(path)) stop("state file not found: ", path, call. = FALSE)
@@ -12,11 +15,13 @@ read_state <- function(path) {
   con <- DBI::dbConnect(RSQLite::SQLite(), path, flags = RSQLite::SQLITE_RO)
   on.exit(DBI::dbDisconnect(con), add = TRUE)
   have <- DBI::dbListTables(con)
-  missing <- setdiff(STATE_TABLES, have)
+  missing <- setdiff(STATE_TABLES, c(have, OPTIONAL_STATE_TABLES))
   if (length(missing)) {
     stop("state file ", path, " is missing table ", paste(missing, collapse = ", "), call. = FALSE)
   }
-  out <- lapply(STATE_TABLES, function(t) DBI::dbGetQuery(con, sprintf('SELECT * FROM "%s"', t)))
+  out <- lapply(STATE_TABLES, function(t) {
+    if (t %in% have) DBI::dbGetQuery(con, sprintf('SELECT * FROM "%s"', t))
+  })
   names(out) <- STATE_TABLES
   out
 }

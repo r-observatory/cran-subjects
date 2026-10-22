@@ -63,10 +63,17 @@ tfidf_matrix <- function(docs, stopwords, min_df, max_df) {
   methods::as(X, "CsparseMatrix")
 }
 
-# Randomized SVD, seeded without touching the global RNG.
+# Truncated SVD run to convergence, so the text neighbours do not depend on the random start.
+# Seeded without touching the global RNG.
 embed <- function(X, dim, seed) {
   withr::local_seed(seed)
-  s <- irlba::svdr(X, k = min(dim, min(dim(X)) - 1L), it = 10L)
+  k <- min(dim, min(dim(X)) - 1L)
+  s <- if (2L * k >= min(dim(X))) {
+    full <- svd(as.matrix(X), nu = k, nv = 0L)
+    list(u = full$u, d = full$d[seq_len(k)])
+  } else {
+    irlba::irlba(X, nv = k, nu = k, tol = 1e-6, maxit = 1000L, work = min(k + 44L, min(dim(X)) - 1L))
+  }
   Z <- s$u %*% diag(s$d, nrow = length(s$d))
   # A package with no terms stays at zero instead of normalising rounding noise.
   Z[Matrix::rowSums(abs(X)) == 0, ] <- 0

@@ -36,7 +36,8 @@ STATE_COLS <- list(
   seen_packages = c(package = "character", first_seen = "character"),
   pipeline_runs = c(run_at = "character", mode = "character", n_packages = "integer",
                     n_subjects_published = "integer", n_held = "integer", n_named_calls = "integer",
-                    n_collections = "integer")
+                    n_collections = "integer"),
+  weekly_clusters = c(package = "character", cluster = "integer")
 )
 
 # A state table with its export columns and types; NULL gives zero rows.
@@ -130,7 +131,14 @@ weekly_pass <- function(prev, inputs, classifications, io, settings, today, tick
                          dependency_edges(inputs$deps, pk$name))
   emb$Z <- NULL
   tick("knn")
-  cl <- find_clusters(edges, pk$name, settings$resolution, settings$seed, settings$iterations)
+  start <- prev$weekly_clusters
+  n_start <- sum(pk$name %in% start$package)
+  if (is.function(io$log)) {
+    io$log(if (n_start) sprintf("%d of %d packages start from last week's clusters", n_start, nrow(pk))
+           else "no clusters from last week, so clustering starts from scratch")
+  }
+  cl <- find_clusters(edges, pk$name, settings$resolution, settings$seed, settings$iterations, start,
+                      settings$start_iterations)
   groups <- candidate_groups(cl, pk, settings)
   tick("clusters")
 
@@ -138,7 +146,7 @@ weekly_pass <- function(prev, inputs, classifications, io, settings, today, tick
   open <- pm[pm$is_primary %in% 1L & is.na(pm$left), , drop = FALSE]
   prev_members <- lapply(live, function(id) sort(open$package[open$subject_id == id], method = "radix"))
   names(prev_members) <- as.character(live)
-  after <- apply_classifications(groups, classifications, edges, prev_members, settings)
+  after <- apply_classifications(groups, classifications, edges, prev_members, settings, ps)
   fx <- classification_effects(groups, after, classifications, prev_members, settings)
   ids <- assign_ids(after, prev_members, ps, fx, settings)
   tick("classifications and matching")
@@ -177,7 +185,8 @@ weekly_pass <- function(prev, inputs, classifications, io, settings, today, tick
   list(tables = list(subjects = with_sizes(subjects, members), subject_members = members,
                      subject_name_basis = sort_rows(basis, c("subject_id", "package")),
                      subject_task_views = task_view_rows(members, inputs$views),
-                     seen_packages = seen_rows(prev$seen_packages, pk$name, today)),
+                     seen_packages = seen_rows(prev$seen_packages, pk$name, today),
+                     weekly_clusters = typed(cl, "weekly_clusters")),
        calls = nm$calls)
 }
 
@@ -522,7 +531,8 @@ daily_pass <- function(prev, inputs, settings, today, tick) {
   list(tables = list(subjects = with_sizes(ps, pm), subject_members = pm,
                      subject_name_basis = typed(prev$subject_name_basis, "subject_name_basis"),
                      subject_task_views = task_view_rows(pm, inputs$views),
-                     seen_packages = seen_rows(seen, pk$name, today)),
+                     seen_packages = seen_rows(seen, pk$name, today),
+                     weekly_clusters = typed(prev$weekly_clusters, "weekly_clusters")),
        calls = 0L)
 }
 

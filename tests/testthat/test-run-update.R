@@ -438,3 +438,23 @@ test_that("a new package below daily_primary_share is recorded as seen but not p
   expect_equal(nrow(q(out2, "SELECT * FROM subject_members WHERE package = 'mixer'")), 0L)
   expect_equal(q(out2, "SELECT first_seen FROM seen_packages WHERE package = 'mixer'")$first_seen, "2026-10-27")
 })
+
+test_that("a weekly run records each package's cluster and the next weekly run starts from them", {
+  db <- withr::local_tempfile(fileext = ".db"); make_fixture_store(db)
+  vf <- withr::local_tempfile(fileext = ".json"); writeLines("[]", vf)
+  io <- fake_io(db, NULL); io$log <- function(msg) message(msg)
+  expect_message(out <- run_update(io, withr::local_tempdir(), "weekly", vf, st), "no clusters from last week")
+  wc <- q(out, "SELECT package, cluster FROM weekly_clusters")
+  expect_equal(nrow(wc), 83L)
+  expect_length(unique(wc$cluster[grepl("^surv", wc$package)]), 1L)
+  expect_false(wc$cluster[wc$package == "surv01"] == wc$cluster[wc$package == "pal01"])
+  io2 <- fake_io(db, out); io2$log <- function(msg) message(msg)
+  expect_message(run_update(io2, withr::local_tempdir(), "weekly", vf, st), "83 of 83 packages start from last week's clusters")
+})
+
+test_that("a daily run carries the weekly clusters unchanged", {
+  r <- cold()
+  out2 <- run_update(fake_io(r$db, r$out), withr::local_tempdir(), "daily", r$vf, st)
+  expect_equal(q(out2, "SELECT * FROM weekly_clusters"), q(r$out, "SELECT * FROM weekly_clusters"))
+  expect_equal(nrow(q(out2, "SELECT * FROM weekly_clusters")), 83L)
+})

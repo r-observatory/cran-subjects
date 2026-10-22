@@ -38,17 +38,30 @@ dependency_edges <- function(deps, universe) {
 }
 
 # Leiden clusters over all packages; ids follow the sorted package order.
-find_clusters <- function(edges, packages, resolution, seed, iterations) {
+# With last week's clusters as `start`, new and unlinked packages start alone and the clusters move
+# only as far as start_iterations passes take them.
+find_clusters <- function(edges, packages, resolution, seed, iterations, start = NULL,
+                          start_iterations = LEIDEN_START_ITERATIONS) {
   packages <- sort(unique(packages), method = "radix")
   e <- edges[edges$from %in% packages & edges$to %in% packages, , drop = FALSE]
   g <- igraph::graph_from_data_frame(e[, c("from", "to")], directed = FALSE,
                                      vertices = data.frame(name = packages))
   igraph::E(g)$weight <- e$weight
+  init <- if (is.null(start)) rep(NA_integer_, length(packages)) else start$cluster[match(packages, start$package)]
+  # A package with no links has nothing holding it in last week's cluster.
+  init[igraph::degree(g) == 0L] <- NA_integer_
   withr::local_seed(seed)
-  memb <- if (igraph::ecount(g) == 0L) seq_along(packages) else {
+  memb <- if (igraph::ecount(g) == 0L) seq_along(packages) else if (all(is.na(init))) {
     igraph::membership(igraph::cluster_leiden(
       g, objective_function = "modularity", weights = igraph::E(g)$weight,
       resolution = resolution, n_iterations = iterations))
+  } else {
+    new <- is.na(init)
+    init[new] <- max(init, na.rm = TRUE) + seq_len(sum(new))
+    igraph::membership(igraph::cluster_leiden(
+      g, objective_function = "modularity", weights = igraph::E(g)$weight,
+      resolution = resolution, n_iterations = start_iterations,
+      initial_membership = match(init, unique(init)) - 1L))
   }
   data.frame(package = packages, cluster = match(memb, unique(memb)), stringsAsFactors = FALSE)
 }

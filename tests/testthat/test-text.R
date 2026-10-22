@@ -62,6 +62,13 @@ test_that("embed leaves the global RNG alone, repeats exactly and normalises row
   expect_equal(ncol(embed(X[1:5, 1:4], 50L, 1L)), 3L)
 })
 
+test_that("embed gives the same text similarities whatever the seed", {
+  # A random matrix has a slowly falling spectrum, where an unconverged SVD depends on its start.
+  X <- methods::as(withr::with_seed(3, Matrix::rsparsematrix(600, 800, 0.02)), "CsparseMatrix")
+  rownames(X) <- paste0("p", 1:600)
+  expect_lt(max(abs(tcrossprod(embed(X, 20L, 1L)) - tcrossprod(embed(X, 20L, 2L)))), 1e-6)
+})
+
 test_that("build_documents repeats the title, then description and topics", {
   pk <- data.frame(name = c("p1", "p2"), title = c("Alpha Tool", "Beta"),
                    description = c("Does 'things'", NA), stringsAsFactors = FALSE)

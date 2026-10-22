@@ -76,6 +76,74 @@ test_that("find_clusters returns every package and gives isolated ones their own
   expect_equal(length(unique(none$cluster)), 2L)
 })
 
+# Planted groups of 25 with sparse links between them, and new packages tied to one group each.
+planted <- function(n_groups, p_in, p_out) withr::with_seed(11, {
+  p <- sprintf("p%04d", seq_len(n_groups * 25L))
+  grp <- rep(seq_len(n_groups), each = 25L)
+  pairs <- t(combn(length(p), 2))
+  same <- grp[pairs[, 1]] == grp[pairs[, 2]]
+  keep <- stats::runif(nrow(pairs)) < ifelse(same, p_in, p_out)
+  list(p = p, grp = grp, e = data.frame(from = p[pairs[keep, 1]], to = p[pairs[keep, 2]],
+                                        weight = stats::runif(sum(keep), 0.3, 1)))
+})
+next_week <- function(g, jitter, n_new) withr::with_seed(3, {
+  newp <- sprintf("n%03d", seq_len(n_new))
+  links <- do.call(rbind, lapply(newp, function(x) {
+    data.frame(from = x, to = sample(g$p[g$grp == sample(g$grp, 1)], 4), weight = 0.8)
+  }))
+  e <- rbind(g$e, links)
+  e$weight <- e$weight * (1 + jitter * stats::rnorm(nrow(e)))
+  list(p = c(g$p, newp), e = e)
+})
+# Share of the clusters of 20 or more found again at Jaccard 0.7 or more.
+kept_share <- function(before, after) {
+  big <- function(cl) {
+    s <- table(cl$cluster)
+    lapply(as.integer(names(s)[s >= 20L]), function(k) cl$package[cl$cluster == k])
+  }
+  b <- big(before); a <- big(after)
+  mean(vapply(b, function(x) max(vapply(a, function(y) jaccard(x, y), 0)), 0) >= 0.7)
+}
+
+test_that("find_clusters started from last week's clusters keeps them as weights shift and packages arrive", {
+  g <- planted(40L, 0.20, 0.010)
+  before <- find_clusters(g$e, g$p, resolution = 3, seed = 1L, iterations = 20L)
+  h <- next_week(g, jitter = 0.05, n_new = 10L)
+  after <- find_clusters(h$e, h$p, resolution = 3, seed = 1L, iterations = 20L, start = before)
+  expect_gte(kept_share(before, after), 0.95)
+  expect_setequal(after$package, h$p)
+})
+
+test_that("a package missing from the start clusters joins the cluster it links to", {
+  a <- sprintf("a%02d", 1:25)
+  b <- sprintf("b%02d", 1:25)
+  e <- rbind(clique(a), clique(b), data.frame(from = "a01", to = "b01", weight = 1))
+  before <- rbind(find_clusters(e, c(a, b), resolution = 1, seed = 1L, iterations = 20L),
+                  data.frame(package = "gone", cluster = 99L))
+  e2 <- rbind(e, data.frame(from = "new", to = a[2:6], weight = 1))
+  after <- find_clusters(e2, c(a, b, "new"), resolution = 1, seed = 1L, iterations = 20L, start = before)
+  expect_equal(after$cluster[after$package == "new"], after$cluster[after$package == "a02"])
+  expect_equal(sort(as.integer(table(after$cluster))), c(25L, 26L))
+  expect_false("gone" %in% after$package)
+})
+
+test_that("a package that lost every link leaves last week's cluster", {
+  a <- sprintf("a%02d", 1:25)
+  b <- sprintf("b%02d", 1:25)
+  e <- rbind(clique(a), clique(b), data.frame(from = "a01", to = "b01", weight = 1))
+  before <- find_clusters(e, c(a, b), resolution = 1, seed = 1L, iterations = 20L)
+  after <- find_clusters(e[e$from != "a25" & e$to != "a25", ], c(a, b), resolution = 1, seed = 1L,
+                         iterations = 20L, start = before)
+  expect_equal(sum(after$cluster == after$cluster[after$package == "a25"]), 1L)
+})
+
+test_that("an empty start clusters from scratch", {
+  g <- planted(40L, 0.20, 0.010)
+  empty <- data.frame(package = character(), cluster = integer())
+  expect_identical(find_clusters(g$e, g$p, resolution = 3, seed = 1L, iterations = 20L, start = empty),
+                   find_clusters(g$e, g$p, resolution = 3, seed = 1L, iterations = 20L))
+})
+
 test_that("subject_core keeps only the top fraction in a large subject", {
   m <- sprintf("m%02d", 1:10)
   d <- data.frame(from = rep(m[-1], 2), to = rep(c("m01", "m02"), c(9, 9)), type = "Imports")

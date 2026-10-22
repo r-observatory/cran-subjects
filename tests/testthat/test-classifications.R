@@ -109,6 +109,55 @@ test_that("split gives the same parts under any global seed and leaves the globa
   next_draw <- withr::with_seed(5, { run(); runif(1) })
   expect_equal(next_draw, withr::with_seed(5, runif(1)))
 })
+test_that("split parts start from last week's parts, so a block between them stays where it was", {
+  cc <- sprintf("c%02d", 1:10)
+  links <- rbind(e, clique(cc), data.frame(from = rep(cc, each = 3), to = rep(u[1:3], 10), weight = 1),
+                 data.frame(from = rep(cc, each = 3), to = rep(st[1:3], 10), weight = 0.9))
+  cv <- v(3L, c(u, st, cc), "split", groups = list(list(name = "Unit testing", packages = u[1:5]),
+                                                   list(name = "Statistical tests", packages = st[1:5])))
+  last <- data.frame(subject_id = c(7L, 8L), name = c("Unit testing", "Statistical tests"),
+                     classification_at = "2026-11-01", status = "judged")
+  out <- apply_classifications(list(grp("k1", c(u, st, cc))), list(cv), links, list(`7` = u, `8` = c(st, cc)), s, last)
+  names(out) <- vapply(out, `[[`, "", "name")
+  expect_equal(out[["Statistical tests"]]$members, sort(c(st, cc)))
+  expect_equal(out[["Unit testing"]]$members, u)
+})
+
+test_that("last week's members of a part with no placed packages left join the parts that have them", {
+  z <- sprintf("z%02d", 1:5)
+  cv <- v(3L, c(u, st, z), "split", groups = list(list(name = "Unit testing", packages = u[1:5]),
+                                                  list(name = "Statistical tests", packages = z)))
+  last <- data.frame(subject_id = c(7L, 8L), name = c("Unit testing", "Statistical tests"),
+                     classification_at = "2026-11-01", status = "judged")
+  out <- apply_classifications(list(grp("k1", c(u, st))), list(cv), e, list(`7` = u, `8` = st), s, last)
+  expect_length(out, 1L)
+  expect_equal(out[[1]]$members, sort(c(u, st)))
+})
+
+test_that("last week's part is not used when its name is ambiguous", {
+  cc <- sprintf("c%02d", 1:10)
+  links <- rbind(e, clique(cc), data.frame(from = rep(cc, each = 3), to = rep(u[1:3], 10), weight = 1),
+                 data.frame(from = rep(cc, each = 3), to = rep(st[1:3], 10), weight = 0.9))
+  cv <- v(3L, c(u, st, cc), "split", groups = list(list(name = "Unit testing", packages = u[1:5]),
+                                                   list(name = "Statistical tests", packages = st[1:5])))
+  # Another subject classified the same day has the same name, so neither tells where the block was.
+  last <- data.frame(subject_id = c(7L, 8L, 9L), name = c("Unit testing", "Statistical tests", "Statistical tests"),
+                     classification_at = "2026-11-01", status = "judged")
+  out <- apply_classifications(list(grp("k1", c(u, st, cc))), list(cv), links,
+                               list(`7` = u, `8` = c(st, cc), `9` = sprintf("y%02d", 1:20)), s, last)
+  names(out) <- vapply(out, `[[`, "", "name")
+  expect_equal(out[["Unit testing"]]$members, sort(c(u, cc)))
+})
+
+test_that("a member with no links inside the group is dropped even when last week's part held it", {
+  last <- data.frame(subject_id = c(7L, 8L), name = c("Unit testing", "Statistical tests"),
+                     classification_at = "2026-11-01", status = "judged")
+  cv <- v(3L, c(u, st, "iso"), "split", groups = list(list(name = "Unit testing", packages = u[1:5]),
+                                                      list(name = "Statistical tests", packages = st[1:5])))
+  out <- apply_classifications(list(grp("k1", c(u, st, "iso"))), list(cv), e, list(`7` = u, `8` = c(st, "iso")), s, last)
+  expect_false("iso" %in% unlist(lapply(out, `[[`, "members")))
+})
+
 test_that("one classification applies to one group only, the best match", {
   out <- apply_classifications(list(grp("k1", u[1:10]), grp("k2", u[11:25])), list(v(3L, u, "hold")), e, list(),
                         modifyList(s, list(drift_jaccard = 0.3)))

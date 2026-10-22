@@ -173,8 +173,10 @@ judge_group <- function(g, v, name, description) {
   g
 }
 
-# Label propagation inside the group, seeded and fixed at the LLM's placements.
-split_group <- function(g, v, edges, settings) {
+# Label propagation inside the group, seeded and fixed at the LLM's placements. Other linked members
+# start in last week's part of the same name from this classification, so parts hold steady; a part
+# with no placed package here, or a name that does not pick out one subject, gives no start.
+split_group <- function(g, v, edges, settings, prev_members = list(), prev_subjects = NULL) {
   members <- g$members
   e <- edges[edges$from %in% members & edges$to %in% members, , drop = FALSE]
   gr <- igraph::graph_from_data_frame(e[, c("from", "to")], directed = FALSE,
@@ -184,9 +186,20 @@ split_group <- function(g, v, edges, settings) {
   for (j in seq_along(cg)) seed[members[members %in% cg[[j]][["packages"]]]] <- j
   fixed <- seed >= 0L
   if (!any(fixed)) return(list())
+  init <- seed
+  if (!is.null(prev_subjects)) {
+    names_cg <- vapply(cg, function(x) as.character(x[["name"]]), "")
+    linked <- members %in% c(e$from, e$to)
+    for (j in intersect(seq_along(cg), seed[fixed])) {
+      was <- prev_subjects$subject_id[prev_subjects$name %in% names_cg[j] & !prev_subjects$status %in% "retired" &
+                                        prev_subjects$classification_at %in% v[["judged_at"]]]
+      if (length(was) != 1L || sum(names_cg == names_cg[j]) != 1L) next
+      init[!fixed & linked & members %in% prev_members[[as.character(was)]]] <- j
+    }
+  }
   withr::local_seed(if (is.null(settings$seed)) 1L else settings$seed)
   lab <- as.integer(igraph::membership(igraph::cluster_label_prop(
-    gr, weights = if (nrow(e)) e$weight else NULL, initial = unname(seed), fixed = unname(fixed))))
+    gr, weights = if (nrow(e)) e$weight else NULL, initial = unname(init), fixed = unname(fixed))))
   owner <- tapply(seed[fixed], lab[fixed], function(x) x[1])
   part <- unname(owner[as.character(lab)])
   parts <- list()
@@ -226,7 +239,7 @@ place_strays <- function(groups, from, strays, edges, settings) {
 }
 
 # Apply each group's classification: strays leave, then splits, holds and keeps, then merges.
-apply_classifications <- function(groups, classifications, edges, prev_members, settings) {
+apply_classifications <- function(groups, classifications, edges, prev_members, settings, prev_subjects = NULL) {
   if (!length(groups) || !length(classifications)) return(groups)
   pick <- match_classifications(groups, classifications, settings$drift_jaccard)
   strays <- data.frame(package = character(), origin = character(), stringsAsFactors = FALSE)
@@ -248,7 +261,7 @@ apply_classifications <- function(groups, classifications, edges, prev_members, 
     }
     kind <- v[["classification"]]
     if (kind == "split") {
-      parts <- split_group(g, v, edges, settings)
+      parts <- split_group(g, v, edges, settings, prev_members, prev_subjects)
       out <- c(out, parts)
       from <- c(from, rep(list(g$key), length(parts)))
       next

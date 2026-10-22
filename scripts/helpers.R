@@ -179,6 +179,10 @@ export_db <- function(path, tables) {
        n_held               INTEGER,
        n_named_calls        INTEGER,
        n_collections        INTEGER
+     )",
+    "CREATE TABLE weekly_clusters (
+       package TEXT PRIMARY KEY,
+       cluster INTEGER
      )"
   )
   for (s in ddl) DBI::dbExecute(con, s)

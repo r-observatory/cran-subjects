@@ -22,6 +22,7 @@ LLAMA_SHA256 <- "cf07c1c112d709bd67e522017471de57ed0ec8bea031d732c5422351c07f65a
 TITLE_WEIGHT <- 2L; TFIDF_MIN_DF <- 3L; TFIDF_MAX_DF <- 0.2; SVD_DIM <- 256L
 KNN_K <- 15L; KNN_MIN_SIM <- 0.30
 LEIDEN_RESOLUTION <- 3; LEIDEN_SEED <- 1L; LEIDEN_ITERATIONS <- 20L
+LEIDEN_START_ITERATIONS <- -1L  # from last week's clusters, passes run until quality stops rising
 MIN_SUBJECT_SIZE <- 20L; MIN_MAINTAINERS <- 5L; MAX_MAINTAINER_SHARE <- 0.5
 SECOND_SHARE <- 0.30; DAILY_PRIMARY_SHARE <- 0.40
 CORE_MIN_USERS <- 3L; CORE_LARGE_SUBJECT <- 60L; CORE_TOP_FRACTION <- 0.05
@@ -49,6 +50,7 @@ default_settings <- function() {
     title_weight = TITLE_WEIGHT, min_df = TFIDF_MIN_DF, max_df = TFIDF_MAX_DF,
     svd_dim = SVD_DIM, knn_k = KNN_K, knn_min_sim = KNN_MIN_SIM,
     resolution = LEIDEN_RESOLUTION, seed = LEIDEN_SEED, iterations = LEIDEN_ITERATIONS,
+    start_iterations = LEIDEN_START_ITERATIONS,
     min_subject_size = MIN_SUBJECT_SIZE, min_maintainers = MIN_MAINTAINERS,
     max_maintainer_share = MAX_MAINTAINER_SHARE,
     second_share = SECOND_SHARE, daily_primary_share = DAILY_PRIMARY_SHARE,
