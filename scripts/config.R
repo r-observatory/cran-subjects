@@ -41,7 +41,7 @@ WORDING_WORDS <- c("interface", "interfaces", "client", "clients", "wrapper", "w
 GENERIC_TAIL_WORDS <- c("tools", "tool", "techniques", "methods", "functions", "operations")
 GENERIC_NAME_WORDS <- c("utility", "utilities", "functions", "helpers", "miscellaneous",
                         "interfaces", "wrappers", "data", "analysis", "models", "tools", "methods")
-INSTALL_PATTERNS <- c("install(s|ing)?\\b.{0,40}\\bload", "\\bload(s|ing)?\\b.{0,40}\\binstall",
+INSTALL_PATTERNS <- c("install(s|ing|ation)?\\b.{0,40}\\bload", "\\bload(s|ing)?\\b.{0,40}\\binstall",
                       "meta-?package", "umbrella package", "in one go",
                       "\\b(install|load|attach)\\w*\\b.{0,60}\\b(suite|set|family|collection) of (r )?packages",
                       "\\b(suite|set|family|collection) of (r )?packages\\b.{0,60}\\b(install|load|attach)")

@@ -84,6 +84,12 @@ test_that("member-package wording needs an install, load or attach word nearby",
   expect_false(is_collection_text(far, NA))
 })
 
+test_that("installation and loading count as install wording, as fastverse writes it", {
+  expect_true(is_collection_text("A Suite of High-Performance Packages for Statistics and Data Manipulation",
+    "Easy installation, loading and management, of high-performance packages for statistical computing and data manipulation in R."))
+  expect_false(is_collection_text("Installation Helpers", "Tools to check an installation."))
+})
+
 test_that("a title and description mention gives one description row", {
   y <- x
   y$packages$title[y$packages$name == "janitor"] <- "Works with 'tidyverse'"
