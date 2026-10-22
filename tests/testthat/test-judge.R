@@ -140,6 +140,34 @@ test_that("site text rules send an answer back", {
   expect_equal(merge_one(queue_dir(m), g)$res$invalid, 1L)
 })
 
+test_that("a name opening with A or An sends an answer back", {
+  m <- c("a", "b")
+  ok <- list(classification = "keep", name = "Analysis of tables", description = "These packages do things.")
+  expect_equal(merge_one(queue_dir(m), ok)$res$written, 1L)
+  for (nm in c("A table set", "An overview", " an overview")) {
+    r <- merge_one(queue_dir(m), modifyList(ok, list(name = nm)))
+    expect_equal(r$res$invalid, 1L, info = nm)
+    expect_match(paste(unlist(r$invalid[[1]]$errors), collapse = " "), "name must not start with A or An", info = nm)
+  }
+  g <- list(classification = "split", groups = list(list(name = "An overview", packages = list("a"))))
+  expect_equal(merge_one(queue_dir(m), g)$res$invalid, 1L)
+})
+
+test_that("an answer whose subject_id is not one value is invalid and the merge goes on", {
+  out <- queue_dir(c("a", "b"))
+  vf <- withr::local_tempfile(fileext = ".json")
+  writeLines("[]", vf)
+  writeLines(c('{"subject_id": [1, 2], "classification": "hold"}', '{"subject_id": {"id": 1}, "classification": "hold"}',
+               '{"subject_id": [], "classification": "hold"}', '{"subject_id": 1, "classification": "hold"}'),
+             file.path(out, "judge-answers.jsonl"))
+  res <- judge_merge(out, vf, "m", "2026-11-01")
+  expect_equal(res$written, 1L)
+  expect_equal(res$invalid, 3L)
+  bad <- read_lines_json(file.path(out, "judge-invalid.jsonl"))
+  expect_true(all(vapply(bad, function(b) grepl("subject_id", paste(unlist(b$errors), collapse = " ")), NA)))
+  expect_equal(read_classifications(vf)[[1]]$classification, "hold")
+})
+
 test_that("an answer for a subject outside the queue, or unparsable, is invalid", {
   out <- queue_dir(c("a", "b"))
   vf <- withr::local_tempfile(fileext = ".json")

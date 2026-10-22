@@ -289,7 +289,8 @@ apply_classifications <- function(groups, classifications, edges, prev_members, 
 }
 
 # Subjects waiting for a classification: new names, name holds, and classifications their members have drifted from.
-waiting_subjects <- function(subjects, members, classifications, settings) {
+# `basis` is the subject_name_basis table, the baseline for judged split parts.
+waiting_subjects <- function(subjects, members, basis, classifications, settings) {
   empty <- data.frame(subject_id = integer(), slug = character(), name = character(),
                       why = character(), stringsAsFactors = FALSE)
   if (is.null(subjects) || !nrow(subjects)) return(empty)
@@ -300,7 +301,7 @@ waiting_subjects <- function(subjects, members, classifications, settings) {
   name_hold <- st %in% "held" & !is.na(hr) & startsWith(hr, "name_")
   why[name_hold] <- paste0("held: ", hr[name_hold])
   check <- which(st %in% "judged" | (st %in% "held" & hr %in% "classification"))
-  if (length(check) && length(classifications)) {
+  if (length(check)) {
     vid <- vapply(classifications, function(v) as.integer(v[["subject_id"]]), 1L)
     when <- vapply(classifications, function(v) as.character(v[["judged_at"]]), "")
     latest <- order(when, decreasing = TRUE, method = "radix")
@@ -312,9 +313,16 @@ waiting_subjects <- function(subjects, members, classifications, settings) {
     for (i in check) {
       id <- subjects$subject_id[i]
       k <- latest[vid[latest] == id][1]
-      if (is.na(k)) next
-      # Its own classification without strays, plus every group merged into it.
-      base <- Reduce(union, lapply(classifications[which(into == id)], settled), settled(classifications[[k]]))
+      if (!is.na(k)) {
+        # Its own classification without strays, plus every group merged into it.
+        base <- Reduce(union, lapply(classifications[which(into == id)], settled), settled(classifications[[k]]))
+      } else if (st[i] %in% "judged") {
+        # A split part has no classification of its own, so it drifts from the members it was named from.
+        base <- if (is.null(basis)) character() else basis$package[basis$subject_id %in% id]
+        if (!length(base)) next
+      } else {
+        next
+      }
       now <- cur$package[cur$subject_id == id]
       if (jaccard(base, now) < settings$drift_jaccard - 1e-12) why[i] <- "drifted"
     }

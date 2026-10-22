@@ -25,15 +25,32 @@ test_that("remind.yml has the schedule, narrow permissions and no secret but the
   expect_true(all(used == "secrets.GITHUB_TOKEN"))
 })
 
+small_db <- function(out, ...) {
+  db <- file.path(out, "s.db")
+  con <- DBI::dbConnect(RSQLite::SQLite(), db)
+  on.exit(DBI::dbDisconnect(con))
+  DBI::dbExecute(con, "CREATE TABLE subjects (subject_id INTEGER, slug TEXT, name TEXT, status TEXT, held_reason TEXT)")
+  DBI::dbExecute(con, "CREATE TABLE subject_members (subject_id INTEGER, package TEXT, is_primary INTEGER, \"left\" TEXT)")
+  DBI::dbExecute(con, "CREATE TABLE subject_name_basis (subject_id INTEGER, package TEXT)")
+  for (sql in c(...)) DBI::dbExecute(con, sql)
+  db
+}
+
+test_that("remind_write lists a split part that drifted from its name basis", {
+  out <- withr::local_tempdir()
+  db <- small_db(out, "INSERT INTO subjects VALUES (5, 'part', 'Part', 'judged', NULL)",
+                 "INSERT INTO subject_members VALUES (5, 'a', 1, NULL), (5, 'b', 1, NULL), (5, 'c', 1, NULL)",
+                 "INSERT INTO subject_name_basis VALUES (5, 'a'), (5, 'x'), (5, 'y')")
+  vp <- file.path(out, "v.json")
+  writeLines("[]", vp)
+  expect_equal(remind_write(db, vp, out, default_settings()), 1L)
+  expect_equal(readLines(file.path(out, "remind.md"))[3], "- Part (5): drifted")
+})
+
 test_that("remind_write counts waiting subjects in a database", {
   skip_if_not_installed("RSQLite")
   out <- withr::local_tempdir()
-  db <- file.path(out, "s.db")
-  con <- DBI::dbConnect(RSQLite::SQLite(), db)
-  DBI::dbExecute(con, "CREATE TABLE subjects (subject_id INTEGER, slug TEXT, name TEXT, status TEXT, held_reason TEXT)")
-  DBI::dbExecute(con, "CREATE TABLE subject_members (subject_id INTEGER, package TEXT, is_primary INTEGER, \"left\" TEXT)")
-  DBI::dbExecute(con, "INSERT INTO subjects VALUES (1, 'a', 'Alpha', 'named', NULL), (2, 'b', 'Beta', 'judged', NULL)")
-  DBI::dbDisconnect(con)
+  db <- small_db(out, "INSERT INTO subjects VALUES (1, 'a', 'Alpha', 'named', NULL), (2, 'b', 'Beta', 'judged', NULL)")
   vp <- file.path(out, "v.json")
   writeLines("[]", vp)
   n <- remind_write(db, vp, out, default_settings())
@@ -49,11 +66,7 @@ test_that("remind_write counts waiting subjects in a database", {
 test_that("a database with no subjects gives a count of 0", {
   skip_if_not_installed("RSQLite")
   out <- withr::local_tempdir()
-  db <- file.path(out, "s.db")
-  con <- DBI::dbConnect(RSQLite::SQLite(), db)
-  DBI::dbExecute(con, "CREATE TABLE subjects (subject_id INTEGER, slug TEXT, name TEXT, status TEXT, held_reason TEXT)")
-  DBI::dbExecute(con, "CREATE TABLE subject_members (subject_id INTEGER, package TEXT, is_primary INTEGER, \"left\" TEXT)")
-  DBI::dbDisconnect(con)
+  db <- small_db(out)
   vp <- file.path(out, "v.json")
   writeLines("[]", vp)
   expect_equal(remind_write(db, vp, out, default_settings()), 0L)

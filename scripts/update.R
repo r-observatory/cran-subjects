@@ -59,6 +59,7 @@ run_update <- function(io, out_dir, mode = c("weekly", "daily"), classifications
   say <- if (is.function(io$log)) io$log else function(msg) invisible(NULL)
   clock <- new.env()
   clock$t <- proc.time()[["elapsed"]]
+  started <- clock$t
   tick <- function(stage) {
     now <- proc.time()[["elapsed"]]
     say(sprintf("%s: %.1f s", stage, now - clock$t))
@@ -74,11 +75,17 @@ run_update <- function(io, out_dir, mode = c("weekly", "daily"), classifications
     stop("the daily run needs the previous state, so a weekly run must come first", call. = FALSE)
   }
   classifications <- if (mode == "weekly") read_classifications(classifications_path) else list()
+  # An emptied classifications file would quietly undo every classification.
+  if (mode == "weekly" && !length(classifications) && !is.null(prev) &&
+      any(prev$subjects$status %in% "judged" | prev$subjects$held_reason %in% "classification")) {
+    stop("the previous state has subjects under a classification, but the classifications file ", classifications_path,
+         " holds none", call. = FALSE)
+  }
   inputs <- read_inputs(io$fetch_input(work))
   today <- io$today()
   tick("inputs")
 
-  pass <- if (mode == "weekly") weekly_pass(prev, inputs, classifications, io, settings, today, tick)
+  pass <- if (mode == "weekly") weekly_pass(prev, inputs, classifications, io, settings, today, tick, started)
           else daily_pass(prev, inputs, settings, today, tick)
   tables <- pass$tables
 
@@ -111,7 +118,7 @@ run_update <- function(io, out_dir, mode = c("weekly", "daily"), classifications
 
 # ---- weekly ----------------------------------------------------------------
 
-weekly_pass <- function(prev, inputs, classifications, io, settings, today, tick) {
+weekly_pass <- function(prev, inputs, classifications, io, settings, today, tick, started) {
   pk <- inputs$packages
   ps <- typed(prev$subjects, "subjects")
   pm <- typed(prev$subject_members, "subject_members")
@@ -140,7 +147,7 @@ weekly_pass <- function(prev, inputs, classifications, io, settings, today, tick
   gram_df <- title_gram_df(titles)
   phrases <- lapply(after, function(g) title_phrases(titles, g$members, gram_df))
   nm <- name_groups(after, ids, ps, split(pb$package, pb$subject_id), phrases, inputs, edges, io,
-                    settings, today)
+                    settings, today, started)
   after <- nm$groups
   tick("naming")
 
@@ -296,7 +303,10 @@ site_sentence <- function(x) {
 }
 
 # Judged groups keep the LLM's name, held ones keep last run's, and the rest are named when new or drifted.
-name_groups <- function(groups, ids, ps, basis, phrases, inputs, edges, io, settings, today) {
+# No call starts once name_budget_s seconds have passed since `started`.
+name_groups <- function(groups, ids, ps, basis, phrases, inputs, edges, io, settings, today,
+                        started = proc.time()[["elapsed"]]) {
+  force(started)
   new_basis <- list()
   queue <- integer()
   fallback <- vector("list", length(groups))
@@ -342,21 +352,31 @@ name_groups <- function(groups, ids, ps, basis, phrases, inputs, edges, io, sett
   }
   # A subject published last run never unpublishes through its own rename.
   keep_old <- function(i) was_published[i] && !is.null(fallback[[i]])
+  over <- FALSE
   for (i in queue) {
     g <- groups[[i]]
     ans <- NULL
-    if (ready && calls < settings$name_cap) {
-      calls <- calls + 1L
-      ans <- io$name_cluster(system_prompt, name_prompt(g$members, inputs, edges, phrases[[i]], settings))
+    if (ready && calls < settings$name_cap && !over) {
+      over <- proc.time()[["elapsed"]] - started >= settings$name_budget_s
+      if (over && is.function(io$log)) io$log(sprintf("naming budget reached after %d calls", calls))
+      if (!over) {
+        calls <- calls + 1L
+        ans <- io$name_cluster(system_prompt, name_prompt(g$members, inputs, edges, phrases[[i]], settings))
+      }
     }
     if (usable_answer(ans)) {
       clean <- clean_name(ans[["name"]], g$members)
       bad <- is_generic_name(clean) || !site_name_ok(clean)
-      if (bad && keep_old(i)) {
+      desc <- site_sentence(ans[["description"]])
+      if ((bad || is.na(desc)) && keep_old(i)) {
         g <- fallback[[i]]
+      } else if (!bad && is.na(desc)) {
+        # No page without a sentence, so the name is not kept either.
+        g$status <- "held"
+        g$held_reason <- "name_missing"
       } else {
         g$name <- if (nzchar(clean)) clean else trimws(ans[["name"]])
-        g$description <- site_sentence(ans[["description"]])
+        g$description <- desc
         g$named_by <- MODEL_SHA256
         g$named_at <- today
         g$status <- if (bad) "held" else "named"
@@ -712,7 +732,7 @@ default_io <- function(args, gh = gh_run) {
 }
 
 if (sys.nframe() == 0L) {
-  REPO_ROOT <-dirname(normalizePath(.script_dir))
+  REPO_ROOT <- dirname(normalizePath(.script_dir))
   args <- parse_cli(commandArgs(trailingOnly = TRUE))
   run_update(default_io(args), args$out_dir, args$mode, settings = cli_settings(args))
 }

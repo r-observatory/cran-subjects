@@ -299,7 +299,7 @@ test_that("a judged subject whose keep classification has lapsed comes back name
   s <- q(out4, sprintf("SELECT * FROM subjects WHERE subject_id = %d", pal))
   expect_equal(c(s$status, s$name, s$slug), c("named", "Colour scales", "colour-palettes"))
   w <- waiting_subjects(q(out4, "SELECT * FROM subjects"), q(out4, "SELECT * FROM subject_members"),
-                        read_classifications(r$vf), st)
+                        q(out4, "SELECT * FROM subject_name_basis"), read_classifications(r$vf), st)
   expect_true(pal %in% w$subject_id)
 })
 
@@ -362,6 +362,69 @@ test_that("a daily run never names, so a failing name_cluster does not stop it",
   io <- fake_io(r$db, r$out); io$name_cluster <- function(system, user) stop("naming called")
   out2 <- run_update(io, withr::local_tempdir(), "daily", r$vf, st)
   expect_equal(nrow(q(out2, "SELECT * FROM subjects")), 2L)
+})
+
+test_that("judged state with an empty classifications file stops the weekly run", {
+  r <- cold(); pal <- subject_id_of(r$out, "colour-palettes")
+  run <- function(prev, mode = "weekly") run_update(fake_io(r$db, prev), withr::local_tempdir(.local_envir = parent.frame()), mode, r$vf, st)
+  write_classification(r$vf, subject_id = pal, members = primary_of(r$out, pal), classification = "keep",
+                name = "Colour scales", description = "These packages give colour scales for plots.")
+  judged <- run(r$out)
+  write_classification(r$vf, subject_id = pal, members = primary_of(r$out, pal), classification = "hold")
+  held <- run(r$out)
+  expect_equal(q(held, sprintf("SELECT held_reason FROM subjects WHERE subject_id = %d", pal))$held_reason, "classification")
+  writeLines("[]", r$vf)
+  expect_error(run(judged), "classifications file")
+  expect_error(run(held), "classifications file")
+  expect_no_error(run(r$out))
+  expect_no_error(run(judged, "daily"))
+})
+
+test_that("the naming budget stops new calls and holds the rest as name_missing", {
+  db <- withr::local_tempfile(fileext = ".db"); make_fixture_store(db)
+  vf <- withr::local_tempfile(fileext = ".json"); writeLines("[]", vf)
+  expect_equal(default_settings()$name_budget_s, 9000)
+  io <- fake_io(db, NULL); io$name_cluster <- function(system, user) stop("no call expected")
+  out <- run_update(io, withr::local_tempdir(), "weekly", vf, modifyList(st, list(name_budget_s = 0)))
+  expect_equal(q(out, "SELECT n_named_calls FROM pipeline_runs")$n_named_calls, 0L)
+  expect_equal(unique(q(out, "SELECT held_reason FROM subjects")$held_reason), "name_missing")
+})
+
+test_that("a call that runs past the naming budget is the last one started", {
+  db <- withr::local_tempfile(fileext = ".db"); make_fixture_store(db); x <- read_inputs(db)
+  groups <- list(empty_group("c1", sprintf("surv%02d", 1:30)), empty_group("c2", sprintf("pal%02d", 1:30)))
+  io <- list(name_cluster = function(system, user) {
+    Sys.sleep(0.3)
+    list(name = if (grepl("surv", user)) "Survival Analysis" else "Colour Palettes",
+         description = "These packages share one subject.")
+  })
+  out <- name_groups(groups, c(c1 = 1L, c2 = 2L), typed(NULL, "subjects"), list(), list(character(), character()),
+                     x, empty_edges(), io, modifyList(st, list(name_budget_s = 0.2)), "2026-10-26")
+  expect_equal(out$calls, 1L)
+  st_reason <- vapply(out$groups, function(g) paste(g$status, g$held_reason), "")
+  expect_setequal(st_reason, c("named NA", "held name_missing"))
+})
+
+test_that("a name without a usable description is held, and a published subject keeps its own", {
+  db <- withr::local_tempfile(fileext = ".db"); make_fixture_store(db); x <- read_inputs(db)
+  groups <- list(empty_group("c1", sprintf("surv%02d", 1:30)), empty_group("c2", sprintf("pal%02d", 1:30)))
+  ps <- typed(data.frame(subject_id = 1L, slug = "colour-palettes", name = "Colour palettes", status = "named",
+                         description = "These packages give colour palettes.", named_by = MODEL_SHA256,
+                         named_at = "2026-10-01", first_seen = "2026-10-01"), "subjects")
+  for (d in list("A set of survival packages.", "These fit; they plot.", "  ", NULL)) {
+    io <- list(name_cluster = function(system, user) {
+      list(name = if (grepl("surv", user)) "Survival Analysis" else "Colour scales", description = d)
+    })
+    out <- name_groups(groups, c(c1 = 2L, c2 = 1L), ps, list(`1` = sprintf("pal%02d", 1:10)),
+                       list(character(), character()), x, empty_edges(), io, st, "2026-10-26")
+    info <- if (is.null(d)) "no description" else d
+    expect_equal(out$calls, 2L, info = info)
+    expect_equal(c(out$groups[[1]]$status, out$groups[[1]]$held_reason), c("held", "name_missing"), info = info)
+    expect_true(is.na(out$groups[[1]]$name), info = info)
+    expect_equal(c(out$groups[[2]]$name, out$groups[[2]]$status, out$groups[[2]]$description),
+                 c("Colour palettes", "named", "These packages give colour palettes."), info = info)
+    expect_length(out$basis, 0L)
+  }
 })
 
 test_that("a new package below daily_primary_share is recorded as seen but not placed", {

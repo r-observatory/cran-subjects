@@ -3,6 +3,7 @@ grp <- function(key, m) list(key = key, members = sort(m), name = NA, descriptio
 v <- function(id, m, classification, ...) c(list(subject_id = id, members = sort(m), fingerprint = "x", classification = classification,
                                      judged_at = "2026-11-01", model = "llm"), list(...))
 s <- default_settings()
+no_basis <- data.frame(subject_id = integer(), package = character())
 u <- sprintf("u%02d", 1:25); st <- sprintf("s%02d", 1:25)
 clique <- function(p) { m <- t(combn(p, 2)); data.frame(from = m[, 1], to = m[, 2], weight = 1) }
 e <- rbind(clique(u), clique(st), data.frame(from = "u01", to = "s01", weight = 1))
@@ -162,12 +163,29 @@ test_that("waiting_subjects lists new names, name holds and drifted classificati
              mem(4L, c(p[1:5], q[1:5])), mem(5L, p), mem(6L, q), mem(7L, q), mem(8L, q))
   vs <- list(v(3L, p, "keep", name = "n", description = "d"), v(4L, p, "keep", name = "n", description = "d"),
              v(5L, p, "hold"), v(6L, p, "hold"), v(7L, p, "keep", name = "n", description = "d"), v(8L, p, "hold"))
-  w <- waiting_subjects(subj, m, vs, s)
+  w <- waiting_subjects(subj, m, no_basis, vs, s)
   expect_named(w, c("subject_id", "slug", "name", "why"))
   expect_equal(w$subject_id, c(1L, 2L, 4L, 6L))
   expect_equal(w$why, c("new name", "held: name_generic", "drifted", "drifted"))
   expect_equal(w$slug, c("s1", "s2", "s4", "s6"))
-  expect_equal(nrow(waiting_subjects(subj[0, ], m[0, ], list(), s)), 0L)
+  expect_equal(nrow(waiting_subjects(subj[0, ], m[0, ], no_basis, list(), s)), 0L)
+})
+test_that("a judged split part drifts against its name basis", {
+  p <- sprintf("p%02d", 1:10); q <- sprintf("q%02d", 1:15)
+  subj <- data.frame(subject_id = c(11L, 12L), slug = c("a", "b"), name = c("Part A", "Part B"), status = "judged",
+                     held_reason = NA, stringsAsFactors = FALSE)
+  m <- data.frame(subject_id = rep(c(11L, 12L), each = 10), package = c(p, q[1:10]), is_primary = 1L, left = NA)
+  split_v <- list(v(3L, c(p, q[1:10]), "split", groups = list(list(name = "Part A", packages = p[1:2]),
+                                                              list(name = "Part B", packages = q[1:2]))))
+  # Part A matches its basis; Part B shares 5 of 15 packages with its basis.
+  basis <- data.frame(subject_id = rep(c(11L, 12L), each = 10), package = c(p, q[c(1:5, 11:15)]))
+  w <- waiting_subjects(subj, m, basis, split_v, s)
+  expect_equal(w$subject_id, 12L); expect_equal(w$why, "drifted")
+  # Part B now shares 9 of 11 packages with its basis, above drift_jaccard.
+  basis$package[basis$subject_id == 12L] <- q[c(1:9, 11)]
+  expect_equal(nrow(waiting_subjects(subj, m, basis, split_v, s)), 0L)
+  expect_equal(nrow(waiting_subjects(subj, m, basis, list(), s)), 0L)
+  expect_equal(nrow(waiting_subjects(subj, m, no_basis, split_v, s)), 0L)
 })
 test_that("drift is measured without strays and with the groups merged in", {
   p <- sprintf("p%02d", 1:10)
@@ -176,9 +194,9 @@ test_that("drift is measured without strays and with the groups merged in", {
   m <- data.frame(subject_id = c(rep(1L, 6), rep(2L, 50)), package = c(p[5:10], u, st), is_primary = 1L, left = NA)
   vs <- list(v(1L, p, "keep", name = "n", description = "d", strays = p[1:4]),
              v(2L, st, "keep", name = "n", description = "d"), v(3L, u, "merge", merge_with = 2L))
-  expect_equal(nrow(waiting_subjects(subj, m, vs, s)), 0L)
-  w <- waiting_subjects(subj, m, vs[1:2], s)
+  expect_equal(nrow(waiting_subjects(subj, m, no_basis, vs, s)), 0L)
+  w <- waiting_subjects(subj, m, no_basis, vs[1:2], s)
   expect_equal(w$subject_id, 2L); expect_equal(w$why, "drifted")
-  w <- waiting_subjects(subj, m, list(v(1L, p, "keep", name = "n", description = "d")), s)
+  w <- waiting_subjects(subj, m, no_basis, list(v(1L, p, "keep", name = "n", description = "d")), s)
   expect_equal(w$subject_id, 1L)
 })

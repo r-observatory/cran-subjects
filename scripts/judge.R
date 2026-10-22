@@ -79,7 +79,7 @@ judge_prepare <- function(state_path, inputs_path, out_dir, classifications_path
   members <- state$subject_members
   live <- subjects[!subjects$status %in% "retired", , drop = FALSE]
   todo <- if (all) live[order(live$subject_id), c("subject_id", "slug", "name"), drop = FALSE]
-          else waiting_subjects(subjects, members, classifications, settings)
+          else waiting_subjects(subjects, members, state$subject_name_basis, classifications, settings)
   open <- members[members$is_primary %in% 1L & is.na(members$left), , drop = FALSE]
   words <- stats::setNames(lapply(live$name, safe_main_words), as.character(live$subject_id))
   gram_df <- title_gram_df(stats::setNames(inputs$packages$title, inputs$packages$name))
@@ -112,19 +112,15 @@ read_json_lines <- function(path) {
   lines[nzchar(trimws(lines))]
 }
 
-# Site text rules: no semicolon in a name or description, and no description starting with A or An.
+# Site text rules: no semicolon in a name or description, and neither starts with A or An.
 text_errors <- function(x, what) {
   err <- character()
-  nm <- x[["name"]]
-  ds <- x[["description"]]
-  if (is.character(nm) && length(nm) == 1L && !is.na(nm) && grepl(";", nm, fixed = TRUE)) {
-    err <- c(err, paste(what, "name must not contain a semicolon"))
-  }
-  if (is.character(ds) && length(ds) == 1L && !is.na(ds)) {
-    if (grepl(";", ds, fixed = TRUE)) err <- c(err, paste(what, "description must not contain a semicolon"))
-    if (tolower(sub("^\\s*([^[:space:]]*).*$", "\\1", ds)) %in% c("a", "an")) {
-      err <- c(err, paste(what, "description must not start with A or An"))
-    }
+  opens_with_article <- function(s) tolower(sub("^\\s*([^[:space:]]*).*$", "\\1", s)) %in% c("a", "an")
+  for (f in c("name", "description")) {
+    s <- x[[f]]
+    if (!is.character(s) || length(s) != 1L || is.na(s)) next
+    if (grepl(";", s, fixed = TRUE)) err <- c(err, paste(what, f, "must not contain a semicolon"))
+    if (opens_with_article(s)) err <- c(err, paste(what, f, "must not start with A or An"))
   }
   err
 }
@@ -174,8 +170,9 @@ judge_merge <- function(out_dir, classifications_path, model, today) {
   invalid <- list()
   for (line in read_json_lines(file.path(out_dir, JUDGE_ANSWERS))) {
     a <- tryCatch(jsonlite::fromJSON(line, simplifyVector = FALSE), error = function(e) NULL)
-    if (!is.list(a) || is.null(names(a)) || is.null(a[["subject_id"]])) {
-      invalid[[length(invalid) + 1L]] <- list(subject_id = NA_integer_, errors = I("answer is not a JSON object with a subject_id"),
+    id <- if (is.list(a) && !is.null(names(a))) a[["subject_id"]]
+    if (!is.atomic(id) || length(id) != 1L || is.na(id)) {
+      invalid[[length(invalid) + 1L]] <- list(subject_id = NA_integer_, errors = I("answer is not a JSON object with a single subject_id"),
                                               answer = line)
       next
     }

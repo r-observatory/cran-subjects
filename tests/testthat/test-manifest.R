@@ -88,8 +88,9 @@ test_that("default_settings carries every constant", {
     "resolution", "seed", "iterations", "min_subject_size", "min_maintainers",
     "max_maintainer_share", "second_share", "daily_primary_share", "core_min_users",
     "core_large_subject", "core_top_fraction", "match_jaccard", "drift_jaccard",
-    "name_cap", "name_members", "loc_r_max", "org_min_packages"))
+    "name_cap", "name_members", "name_budget_s", "loc_r_max", "org_min_packages"))
   expect_equal(s$resolution, LEIDEN_RESOLUTION)
+  expect_equal(s$name_budget_s, 150 * 60)
   expect_equal(s$min_df, TFIDF_MIN_DF)
   expect_equal(s$org_min_packages, ORG_MIN_PACKAGES)
 })

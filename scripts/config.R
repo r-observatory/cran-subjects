@@ -27,6 +27,7 @@ SECOND_SHARE <- 0.30; DAILY_PRIMARY_SHARE <- 0.40
 CORE_MIN_USERS <- 3L; CORE_LARGE_SUBJECT <- 60L; CORE_TOP_FRACTION <- 0.05
 MATCH_JACCARD <- 0.5; DRIFT_JACCARD <- 0.7
 NAME_CAP <- 40L; NAME_MEMBERS <- 40L
+NAME_BUDGET_S <- 9000  # 150 minutes of a run, after which no naming call starts
 LOC_R_MAX <- 2000L; ORG_MIN_PACKAGES <- 3L
 GENERIC_TOPICS <- c("r", "r-package", "rstats", "cran", "r-programming", "package",
                     "rpackage", "r-language", "cran-r", "hacktoberfest")
@@ -54,7 +55,7 @@ default_settings <- function() {
     core_min_users = CORE_MIN_USERS, core_large_subject = CORE_LARGE_SUBJECT,
     core_top_fraction = CORE_TOP_FRACTION,
     match_jaccard = MATCH_JACCARD, drift_jaccard = DRIFT_JACCARD,
-    name_cap = NAME_CAP, name_members = NAME_MEMBERS,
+    name_cap = NAME_CAP, name_members = NAME_MEMBERS, name_budget_s = NAME_BUDGET_S,
     loc_r_max = LOC_R_MAX, org_min_packages = ORG_MIN_PACKAGES
   )
 }

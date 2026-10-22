@@ -18,6 +18,16 @@ test_that("find_clusters separates two cliques joined by one edge", {
   expect_equal(sort(as.integer(table(cl$cluster))), c(25L, 25L))
 })
 
+test_that("find_clusters gives the same clusters under any global seed and leaves the global RNG alone", {
+  a <- sprintf("a%02d", 1:25)
+  b <- sprintf("b%02d", 1:25)
+  e <- rbind(clique(a), clique(b), data.frame(from = "a01", to = "b01", weight = 1))
+  run <- function() find_clusters(e, c(a, b), resolution = 1, seed = 1L, iterations = 20L)
+  expect_identical(withr::with_seed(99, run()), withr::with_seed(7, run()))
+  next_draw <- withr::with_seed(5, { run(); runif(1) })
+  expect_equal(next_draw, withr::with_seed(5, runif(1)))
+})
+
 test_that("link_shares and second_memberships use the share of link weight", {
   e <- data.frame(from = c("x", "x"), to = c("p", "q"), weight = c(3, 1))
   asg <- data.frame(package = c("x", "p", "q"), cluster = c(1L, 1L, 2L))

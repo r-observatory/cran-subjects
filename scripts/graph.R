@@ -44,7 +44,7 @@ find_clusters <- function(edges, packages, resolution, seed, iterations) {
   g <- igraph::graph_from_data_frame(e[, c("from", "to")], directed = FALSE,
                                      vertices = data.frame(name = packages))
   igraph::E(g)$weight <- e$weight
-  set.seed(seed)
+  withr::local_seed(seed)
   memb <- if (igraph::ecount(g) == 0L) seq_along(packages) else {
     igraph::membership(igraph::cluster_leiden(
       g, objective_function = "modularity", weights = igraph::E(g)$weight,

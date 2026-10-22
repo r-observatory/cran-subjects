@@ -127,6 +127,28 @@ test_that("description_words skips a term that nests in an already picked one", 
   expect_equal(w[["p1"]], "measurement error and bootstrap")
   expect_equal(w[["p2"]], "measurement error")
 })
+test_that("description_words never pairs a word with its plural", {
+  pair <- function(terms, desc) {
+    X <- Matrix::sparseMatrix(i = c(1, 1, 1), j = 1:3, x = c(0.9, 0.8, 0.5), dims = c(1, 3),
+                              dimnames = list("p1", terms))
+    description_words(X, "p1", "p1", c(p1 = desc), character())[["p1"]]
+  }
+  expect_equal(pair(c("interval", "intervals", "bootstrap"), "An interval, intervals and bootstrap."),
+               "interval and bootstrap")
+  expect_equal(pair(c("intervals", "interval", "bootstrap"), "Intervals, an interval and bootstrap."),
+               "intervals and bootstrap")
+  expect_equal(pair(c("estimates", "estimate", "bootstrap"), "Estimates, an estimate and bootstrap."),
+               "estimates and bootstrap")
+  expect_equal(pair(c("estimate", "estimates", "bootstrap"), "An estimate, estimates and bootstrap."),
+               "estimate and bootstrap")
+  expect_equal(pair(c("error", "errors", "bootstrap"), "Error, errors and bootstrap."), "error and bootstrap")
+  expect_equal(pair(c("errors", "error", "bootstrap"), "Errors, error and bootstrap."), "errors and bootstrap")
+  expect_equal(pair(c("standard errors", "error", "bootstrap"), "Standard errors, error and bootstrap."),
+               "standard errors and bootstrap")
+  # Words of three letters or fewer keep their final s.
+  expect_equal(pair(c("gas", "ga", "bootstrap"), "Gas, ga and bootstrap."), "gas and ga")
+})
+
 test_that("output keeps member order with reset row names", {
   m <- c("zz", "aa", "mm")
   r <- placement_reasons(m, NULL, character(0), NA, NULL)
