@@ -28,6 +28,31 @@ test_that("a classification stops applying once membership drifts", {
   out <- apply_classifications(list(grp("k1", u)), list(v(3L, c(u[1:15], sprintf("z%02d", 1:10)), "hold")), e, list(), s)
   expect_equal(out[[1]]$status, "named")
 })
+test_that("a split still applies while its group carries the subject it split, and stops below that", {
+  x <- sprintf("x%02d", 1:25)
+  links <- rbind(e, clique(x), data.frame(from = x[1:5], to = st[1:5], weight = 1))
+  cv <- v(3L, c(u, st), "split", groups = list(list(name = "Unit testing", packages = u[1:5]),
+                                               list(name = "Statistical tests", packages = st[1:5])))
+  # The group holds all 50 of the split's packages among 75: under drift_jaccard, not under match_jaccard.
+  g <- grp("k1", c(u, st, x))
+  out <- apply_classifications(list(g), list(cv), links, list(), s)
+  names(out) <- vapply(out, `[[`, "", "name")
+  expect_setequal(names(out), c("Unit testing", "Statistical tests"))
+  expect_equal(out[["Statistical tests"]]$members, sort(c(st, x)))
+  expect_true(all(vapply(out, `[[`, "", "status") == "judged"))
+  expect_equal(classification_effects(list(g), out, list(cv), list(), s)$split, c(k1 = 3L))
+  # 50 of 105 is under match_jaccard, so the split no longer applies.
+  y <- sprintf("y%02d", 1:30)
+  out <- apply_classifications(list(grp("k1", c(u, st, x, y))), list(cv), rbind(links, clique(y)), list(), s)
+  expect_length(out, 1L)
+  expect_equal(out[[1]]$status, "named")
+})
+test_that("a keep stops applying under drift_jaccard where a split would still hold", {
+  x <- sprintf("x%02d", 1:25)
+  out <- apply_classifications(list(grp("k1", c(u, st, x))),
+                               list(v(3L, c(u, st), "keep", name = "Unit testing", description = "d")), e, list(), s)
+  expect_equal(out[[1]]$status, "named")
+})
 test_that("read_classifications fails loudly", {
   f <- withr::local_tempfile(fileext = ".json"); writeLines("{not json", f)
   expect_error(read_classifications(f), "classifications"); expect_error(read_classifications(tempfile()), "classifications")
@@ -304,6 +329,27 @@ test_that("a judged split part drifts against its name basis", {
   expect_equal(nrow(waiting_subjects(subj, m, basis, split_v, s)), 0L)
   expect_equal(nrow(waiting_subjects(subj, m, basis, list(), s)), 0L)
   expect_equal(nrow(waiting_subjects(subj, m, no_basis, split_v, s)), 0L)
+})
+test_that("a split whose cluster drifts waits once, as the subject it split", {
+  x <- sprintf("x%02d", 1:25)
+  subj <- data.frame(subject_id = c(3L, 7L, 8L), slug = c("old", "unit-testing", "statistical-tests"),
+                     name = c("Old subject", "Unit testing", "Statistical tests"), status = c("retired", "judged", "judged"),
+                     held_reason = NA, classification_at = c(NA, "2026-11-01", "2026-11-01"), stringsAsFactors = FALSE)
+  m <- data.frame(subject_id = rep(c(7L, 8L), each = 25), package = c(u, st), is_primary = 1L, left = NA)
+  basis <- data.frame(subject_id = rep(c(7L, 8L), each = 25), package = c(u, st))
+  cv <- list(v(3L, c(u, st), "split", groups = list(list(name = "Unit testing", packages = u[1:5]),
+                                                    list(name = "Statistical tests", packages = st[1:5]))))
+  cl <- function(...) data.frame(package = c(...), cluster = 4L, stringsAsFactors = FALSE)
+  w <- waiting_subjects(subj, m, basis, cv, s, cl(u, st, x))
+  expect_equal(w$subject_id, 3L); expect_equal(w$why, "split drifted"); expect_equal(w$slug, "old")
+  expect_equal(split_cluster(cv[[1]], rbind(cl(u, st, x), data.frame(package = "z1", cluster = 5L))), sort(c(u, st, x)))
+  # A cluster that still matches, or no longer carries the split at all, sends nothing.
+  expect_equal(nrow(waiting_subjects(subj, m, basis, cv, s, cl(u, st, x[1:5]))), 0L)
+  expect_equal(nrow(waiting_subjects(subj, m, basis, cv, s, cl(u, st, x, sprintf("y%02d", 1:30)))), 0L)
+  expect_equal(nrow(waiting_subjects(subj, m, basis, cv, s)), 0L)
+  # Nor does a split with no live part from it.
+  subj$classification_at[2:3] <- "2026-12-01"
+  expect_equal(nrow(waiting_subjects(subj, m, basis, cv, s, cl(u, st, x))), 0L)
 })
 test_that("drift is measured without strays and with the groups merged in", {
   p <- sprintf("p%02d", 1:10)

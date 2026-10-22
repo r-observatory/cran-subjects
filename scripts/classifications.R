@@ -134,6 +134,23 @@ pick_classification <- function(scores, classifications, threshold) {
   ok[order(-scores[ok], when, ids, decreasing = c(FALSE, TRUE, FALSE), method = "radix")][1]
 }
 
+# The overlap each classification needs to apply. A split holds while its group still carries the subject it
+# split, so its parts keep their ids until the next judging; every other kind stops at drift_jaccard.
+classification_thresholds <- function(classifications, settings) {
+  vapply(classifications, function(v) {
+    if (identical(v[["classification"]], "split")) settings$match_jaccard else settings$drift_jaccard
+  }, 0)
+}
+
+# The raw cluster holding most of a split's members, which the weekly run matches the split against.
+split_cluster <- function(v, clusters) {
+  if (is.null(clusters) || !nrow(clusters)) return(character())
+  k <- clusters$cluster[clusters$package %in% v[["members"]]]
+  if (!length(k)) return(character())
+  home <- names(which.max(table(k)))
+  sort(clusters$package[as.character(clusters$cluster) == home], method = "radix")
+}
+
 classification_for <- function(members, classifications, threshold) {
   if (!length(classifications)) return(NULL)
   i <- pick_classification(classification_scores(members, classifications), classifications, threshold)
@@ -246,7 +263,7 @@ place_strays <- function(groups, from, strays, edges, settings) {
 # Apply each group's classification: strays leave, then splits, holds and keeps, then merges.
 apply_classifications <- function(groups, classifications, edges, prev_members, settings, prev_subjects = NULL) {
   if (!length(groups) || !length(classifications)) return(groups)
-  pick <- match_classifications(groups, classifications, settings$drift_jaccard)
+  pick <- match_classifications(groups, classifications, classification_thresholds(classifications, settings))
   strays <- data.frame(package = character(), origin = character(), stringsAsFactors = FALSE)
   out <- list()
   from <- list()
@@ -307,8 +324,9 @@ apply_classifications <- function(groups, classifications, edges, prev_members, 
 }
 
 # Subjects waiting for a classification: new names, name holds, and classifications their members have drifted from.
-# `basis` is the subject_name_basis table, the baseline for judged split parts.
-waiting_subjects <- function(subjects, members, basis, classifications, settings) {
+# `basis` is the subject_name_basis table, the baseline for judged split parts. With `clusters` (weekly_clusters),
+# a split whose cluster has drifted but still carries it waits too, as the subject it split.
+waiting_subjects <- function(subjects, members, basis, classifications, settings, clusters = NULL) {
   empty <- data.frame(subject_id = integer(), slug = character(), name = character(),
                       why = character(), stringsAsFactors = FALSE)
   if (is.null(subjects) || !nrow(subjects)) return(empty)
@@ -343,6 +361,16 @@ waiting_subjects <- function(subjects, members, basis, classifications, settings
       }
       now <- cur$package[cur$subject_id == id]
       if (jaccard(base, now) < settings$drift_jaccard - 1e-12) why[i] <- "drifted"
+    }
+  }
+  if (!is.null(clusters) && nrow(clusters)) {
+    for (v in Filter(function(v) identical(v[["classification"]], "split"), classifications)) {
+      i <- match(as.integer(v[["subject_id"]]), subjects$subject_id)
+      if (is.na(i) || !st[i] %in% "retired") next
+      parts <- vapply(v[["groups"]], function(g) as.character(g[["name"]]), "")
+      if (!any(!st %in% "retired" & subjects$classification_at %in% v[["judged_at"]] & subjects$name %in% parts)) next
+      j <- jaccard(split_cluster(v, clusters), v[["members"]])
+      if (j >= settings$match_jaccard - 1e-12 && j < settings$drift_jaccard - 1e-12) why[i] <- "split drifted"
     }
   }
   keep <- !is.na(why)

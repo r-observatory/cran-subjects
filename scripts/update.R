@@ -233,7 +233,7 @@ classification_effects <- function(groups, after, classifications, prev_members,
              named = as.integer(unlist(lapply(classifications, function(v) c(v[["subject_id"]], v[["merge_with"]])))))
   fx$named <- fx$named[!is.na(fx$named)]
   if (!length(groups) || !length(classifications)) return(fx)
-  pick <- match_classifications(groups, classifications, settings$drift_jaccard)
+  pick <- match_classifications(groups, classifications, classification_thresholds(classifications, settings))
   keys <- vapply(after, `[[`, "", "key")
   hit <- which(!is.na(pick))
   for (i in hit) {
