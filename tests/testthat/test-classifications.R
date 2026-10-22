@@ -189,6 +189,25 @@ test_that("a keep holds the subject it judged even when its strays leave it unli
   expect_equal(unname(assign_ids(after, prev, ps, fx, s)), 10L)
 })
 
+test_that("a keep does not take a live subject whose members its group no longer holds", {
+  junk <- sprintf("j%02d", 1:20)
+  g <- grp("k1", c(u[1:15], junk))
+  ps <- data.frame(subject_id = c(7L, 9L))
+  prev <- list(`7` = c(u[1:12], junk), `9` = st)
+  keep9 <- v(9L, c(u[1:15], junk), "keep", name = "Unit testing", strays = junk)
+  after <- apply_classifications(list(g), list(keep9), e, prev, s)
+  fx <- classification_effects(list(g), after, list(keep9), prev, s)
+  expect_equal(unname(assign_ids(after, prev, ps, fx, s)), 10L)
+})
+
+test_that("a new subject never takes an id that a classification names", {
+  ps <- data.frame(subject_id = c(7L, 9L))
+  keep12 <- v(12L, u, "keep", name = "Unit testing")
+  after <- apply_classifications(list(grp("k1", u)), list(keep12), e, list(`9` = st), s)
+  fx <- classification_effects(list(grp("k1", u)), after, list(keep12), list(`9` = st), s)
+  expect_equal(unname(assign_ids(after, list(`9` = st), ps, fx, s)), 13L)
+})
+
 test_that("one classification applies to one group only, the best match", {
   out <- apply_classifications(list(grp("k1", u[1:10]), grp("k2", u[11:25])), list(v(3L, u, "hold")), e, list(),
                         modifyList(s, list(drift_jaccard = 0.3)))

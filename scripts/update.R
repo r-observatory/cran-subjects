@@ -226,7 +226,8 @@ candidate_groups <- function(cl, packages, settings, keep = list()) {
 # What the classifications did: subjects split, merge sources gone, and merged groups pinned to their target.
 classification_effects <- function(groups, after, classifications, prev_members, settings) {
   fx <- list(split = stats::setNames(integer(), character()), gone = integer(),
-             pin = stats::setNames(integer(), character()))
+             pin = stats::setNames(integer(), character()),
+             named = vapply(classifications, function(v) as.integer(v[["subject_id"]]), 1L))
   if (!length(groups) || !length(classifications)) return(fx)
   pick <- match_classifications(groups, classifications, settings$drift_jaccard)
   keys <- vapply(after, `[[`, "", "key")
@@ -260,19 +261,22 @@ classification_effects <- function(groups, after, classifications, prev_members,
     to <- keys[order(-held, keys, method = "radix")][1]
     if (!to %in% names(fx$pin)) fx$pin[to] <- into
   }
-  # A keep holds the subject it judged, even when its strays leave it unlike last week's members.
+  # A keep holds the subject it judged while its group, strays and all, still carries that subject, even
+  # when the strays leave it unlike last week's members.
   for (i in hit) {
     v <- classifications[[pick[i]]]
     id <- as.integer(v[["subject_id"]])
     key <- groups[[i]]$key
     if (v[["classification"]] != "keep" || !key %in% keys || key %in% names(fx$pin) ||
-        !as.character(id) %in% names(prev_members) || id %in% c(fx$split, fx$gone, fx$pin)) next
+        !as.character(id) %in% names(prev_members) || id %in% c(fx$split, fx$gone, fx$pin) ||
+        jaccard(groups[[i]]$members, prev_members[[as.character(id)]]) < settings$match_jaccard) next
     fx$pin[key] <- id
   }
   fx
 }
 
-# Previous ids for matched or pinned groups, then new ids above every previous one, in key order.
+# Previous ids for matched or pinned groups, then new ids above every previous one and every id a
+# classification names, in key order.
 assign_ids <- function(after, prev_members, ps, fx, settings) {
   keys <- vapply(after, `[[`, "", "key")
   ids <- stats::setNames(rep(NA_integer_, length(keys)), keys)
@@ -285,7 +289,7 @@ assign_ids <- function(after, prev_members, ps, fx, settings) {
     ids[mt$key] <- mt$subject_id
   }
   fresh <- sort(keys[is.na(ids)], method = "radix")
-  ids[fresh] <- max(c(0L, ps$subject_id)) + seq_along(fresh)
+  ids[fresh] <- max(c(0L, ps$subject_id, fx$named)) + seq_along(fresh)
   ids
 }
 
