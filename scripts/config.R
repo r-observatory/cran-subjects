@@ -24,6 +24,7 @@ KNN_K <- 15L; KNN_MIN_SIM <- 0.30
 LEIDEN_RESOLUTION <- 3; LEIDEN_SEED <- 1L; LEIDEN_ITERATIONS <- 20L
 LEIDEN_START_ITERATIONS <- -1L  # from last week's clusters, passes run until quality stops rising
 MIN_SUBJECT_SIZE <- 20L; MIN_MAINTAINERS <- 5L; MAX_MAINTAINER_SHARE <- 0.5
+MIN_KEEP_SIZE <- 10L  # a published subject under MIN_SUBJECT_SIZE stays while it keeps this many and still matches
 SECOND_SHARE <- 0.30; DAILY_PRIMARY_SHARE <- 0.40
 CORE_MIN_USERS <- 3L; CORE_LARGE_SUBJECT <- 60L; CORE_TOP_FRACTION <- 0.05
 MATCH_JACCARD <- 0.5; DRIFT_JACCARD <- 0.7
@@ -51,7 +52,7 @@ default_settings <- function() {
     svd_dim = SVD_DIM, knn_k = KNN_K, knn_min_sim = KNN_MIN_SIM,
     resolution = LEIDEN_RESOLUTION, seed = LEIDEN_SEED, iterations = LEIDEN_ITERATIONS,
     start_iterations = LEIDEN_START_ITERATIONS,
-    min_subject_size = MIN_SUBJECT_SIZE, min_maintainers = MIN_MAINTAINERS,
+    min_subject_size = MIN_SUBJECT_SIZE, min_keep_size = MIN_KEEP_SIZE, min_maintainers = MIN_MAINTAINERS,
     max_maintainer_share = MAX_MAINTAINER_SHARE,
     second_share = SECOND_SHARE, daily_primary_share = DAILY_PRIMARY_SHARE,
     core_min_users = CORE_MIN_USERS, core_large_subject = CORE_LARGE_SUBJECT,

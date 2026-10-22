@@ -86,7 +86,7 @@ test_that("export_db creates every table with its columns", {
 test_that("default_settings carries every constant", {
   s <- default_settings()
   expect_named(s, c("title_weight", "min_df", "max_df", "svd_dim", "knn_k", "knn_min_sim",
-    "resolution", "seed", "iterations", "start_iterations", "min_subject_size", "min_maintainers",
+    "resolution", "seed", "iterations", "start_iterations", "min_subject_size", "min_keep_size", "min_maintainers",
     "max_maintainer_share", "second_share", "daily_primary_share", "core_min_users",
     "core_large_subject", "core_top_fraction", "match_jaccard", "drift_jaccard",
     "name_cap", "name_members", "name_budget_s", "loc_r_max", "org_min_packages"))

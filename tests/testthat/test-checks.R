@@ -3,4 +3,13 @@ s <- default_settings()
 test_that("five maintainers with no majority pass", { m <- mk(c(4, 4, 4, 4, 4)); expect_true(maintainer_check(names(m), m, s)) })
 test_that("four maintainers fail", { m <- mk(c(5, 5, 5, 5)); expect_false(maintainer_check(names(m), m, s)) })
 test_that("one maintainer holding more than half fails", { m <- mk(c(11, 2, 2, 2, 2, 1)); expect_false(maintainer_check(names(m), m, s)) })
+test_that("a cluster under 20 packages stays a group only while it keeps 10 of a published subject's members", {
+  pk <- data.frame(name = sprintf("p%02d", 1:64), maintainer = paste("M", 1:64))
+  cl <- data.frame(package = pk$name, cluster = rep(1:4, c(25, 15, 15, 9)))
+  keep <- list(`5` = c(pk$name[26:40], "gone1", "gone2"), `6` = c(pk$name[41:45], sprintf("y%02d", 1:20)),
+               `7` = pk$name[56:64])
+  g <- candidate_groups(cl, pk, s, keep)
+  expect_equal(lapply(g, `[[`, "members"), list(pk$name[1:25], pk$name[26:40]))
+  expect_length(candidate_groups(cl, pk, s), 1L)
+})
 test_that("case and spacing do not split one maintainer", { expect_equal(normalise_maintainer(c(" Ann  Lee", "ann lee")), c("ann lee", "ann lee")) })

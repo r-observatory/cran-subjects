@@ -9,6 +9,12 @@ jaccard <- function(a, b) {
   length(intersect(a, b)) / u
 }
 
+# Whether a group under the entry size still carries a subject: it keeps min_keep_size packages and
+# matches the subject's last members.
+keeps_subject <- function(members, previous, settings) {
+  length(members) >= settings$min_keep_size && jaccard(members, previous) >= settings$match_jaccard
+}
+
 # Greedy one to one match, best Jaccard first, ties by key then subject_id (bytewise).
 match_to_previous <- function(group_members, prev_members, threshold) {
   keys <- names(group_members)

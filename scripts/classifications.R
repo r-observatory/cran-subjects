@@ -175,7 +175,8 @@ judge_group <- function(g, v, name, description) {
 
 # Label propagation inside the group, seeded and fixed at the LLM's placements. Other linked members
 # start in last week's part of the same name from this classification, so parts hold steady; a part
-# with no placed package here, or a name that does not pick out one subject, gives no start.
+# with no placed package here, or a name that does not pick out one subject, gives no start. A part
+# under the entry size stays while it still carries last week's part.
 split_group <- function(g, v, edges, settings, prev_members = list(), prev_subjects = NULL) {
   members <- g$members
   e <- edges[edges$from %in% members & edges$to %in% members, , drop = FALSE]
@@ -187,14 +188,16 @@ split_group <- function(g, v, edges, settings, prev_members = list(), prev_subje
   fixed <- seed >= 0L
   if (!any(fixed)) return(list())
   init <- seed
+  was <- rep(NA_character_, length(cg))
   if (!is.null(prev_subjects)) {
     names_cg <- vapply(cg, function(x) as.character(x[["name"]]), "")
     linked <- members %in% c(e$from, e$to)
     for (j in intersect(seq_along(cg), seed[fixed])) {
-      was <- prev_subjects$subject_id[prev_subjects$name %in% names_cg[j] & !prev_subjects$status %in% "retired" &
-                                        prev_subjects$classification_at %in% v[["judged_at"]]]
-      if (length(was) != 1L || sum(names_cg == names_cg[j]) != 1L) next
-      init[!fixed & linked & members %in% prev_members[[as.character(was)]]] <- j
+      id <- prev_subjects$subject_id[prev_subjects$name %in% names_cg[j] & !prev_subjects$status %in% "retired" &
+                                       prev_subjects$classification_at %in% v[["judged_at"]]]
+      if (length(id) != 1L || sum(names_cg == names_cg[j]) != 1L) next
+      was[j] <- as.character(id)
+      init[!fixed & linked & members %in% prev_members[[was[j]]]] <- j
     }
   }
   withr::local_seed(if (is.null(settings$seed)) 1L else settings$seed)
@@ -205,7 +208,8 @@ split_group <- function(g, v, edges, settings, prev_members = list(), prev_subje
   parts <- list()
   for (j in seq_along(cg)) {
     pm <- members[which(part == j)]
-    if (length(pm) < settings$min_subject_size) next
+    if (length(pm) < settings$min_subject_size &&
+        (is.na(was[j]) || !keeps_subject(pm, prev_members[[was[j]]], settings))) next
     d <- cg[[j]][["description"]]
     p <- g
     p$key <- paste0(g$key, "/", j)

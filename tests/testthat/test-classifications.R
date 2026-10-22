@@ -158,6 +158,21 @@ test_that("a member with no links inside the group is dropped even when last wee
   expect_false("iso" %in% unlist(lapply(out, `[[`, "members")))
 })
 
+test_that("a part under 20 packages stays only while it keeps 10 of last week's part", {
+  m <- c(u, st[1:15])
+  cv <- v(3L, m, "split", groups = list(list(name = "Unit testing", packages = u[1:5]),
+                                        list(name = "Statistical tests", packages = st[1:5])))
+  last <- data.frame(subject_id = c(7L, 8L), name = c("Unit testing", "Statistical tests"),
+                     classification_at = "2026-11-01", status = "judged")
+  out <- apply_classifications(list(grp("k1", m)), list(cv), e, list(`7` = u, `8` = st[1:20]), s, last)
+  names(out) <- vapply(out, `[[`, "", "name")
+  expect_equal(out[["Statistical tests"]]$members, st[1:15])
+  expect_length(apply_classifications(list(grp("k1", c(u, st[1:9]))), list(cv), e,
+                                      list(`7` = u, `8` = st[1:9]), s, last), 1L)
+  expect_length(apply_classifications(list(grp("k1", m)), list(cv), e,
+                                      list(`7` = u, `8` = c(st[1:15], sprintf("y%02d", 1:16))), s, last), 1L)
+})
+
 test_that("one classification applies to one group only, the best match", {
   out <- apply_classifications(list(grp("k1", u[1:10]), grp("k2", u[11:25])), list(v(3L, u, "hold")), e, list(),
                         modifyList(s, list(drift_jaccard = 0.3)))

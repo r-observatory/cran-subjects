@@ -139,13 +139,14 @@ weekly_pass <- function(prev, inputs, classifications, io, settings, today, tick
   }
   cl <- find_clusters(edges, pk$name, settings$resolution, settings$seed, settings$iterations, start,
                       settings$start_iterations)
-  groups <- candidate_groups(cl, pk, settings)
-  tick("clusters")
-
   live <- ps$subject_id[!ps$status %in% "retired"]
   open <- pm[pm$is_primary %in% 1L & is.na(pm$left), , drop = FALSE]
   prev_members <- lapply(live, function(id) sort(open$package[open$subject_id == id], method = "radix"))
   names(prev_members) <- as.character(live)
+  published <- prev_members[as.character(intersect(live, ps$subject_id[ps$status %in% PUBLISHED]))]
+  groups <- candidate_groups(cl, pk, settings, published)
+  tick("clusters")
+
   after <- apply_classifications(groups, classifications, edges, prev_members, settings, ps)
   fx <- classification_effects(groups, after, classifications, prev_members, settings)
   ids <- assign_ids(after, prev_members, ps, fx, settings)
@@ -204,11 +205,17 @@ empty_group <- function(key, members, status = NA_character_, held_reason = NA_c
        named_at = NA_character_, classification_at = NA_character_, redirect_from = NA_character_)
 }
 
-# Clusters big enough to be subjects; those failing the maintainer check are held.
-candidate_groups <- function(cl, packages, settings) {
+# Clusters big enough to be subjects, or smaller ones still carrying a published subject in `keep`;
+# those failing the maintainer check are held.
+candidate_groups <- function(cl, packages, settings, keep = list()) {
   maint <- stats::setNames(packages$maintainer, packages$name)
   sizes <- table(cl$cluster)
-  big <- sort(as.integer(names(sizes)[sizes >= settings$min_subject_size]))
+  small <- as.integer(names(sizes)[sizes < settings$min_subject_size])
+  carries <- vapply(small, function(k) {
+    m <- cl$package[cl$cluster == k]
+    any(vapply(keep, function(p) keeps_subject(m, p, settings), NA))
+  }, NA)
+  big <- sort(c(as.integer(names(sizes)[sizes >= settings$min_subject_size]), small[carries]))
   lapply(big, function(k) {
     m <- sort(cl$package[cl$cluster == k], method = "radix")
     key <- sprintf("c%05d", k)
