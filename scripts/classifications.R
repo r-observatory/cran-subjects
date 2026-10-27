@@ -171,6 +171,22 @@ match_classifications <- function(groups, classifications, threshold) {
   pick
 }
 
+# For each published subject, the index of its latest classification judged after its own classification_at,
+# named by subject id. Such a classification applies once, by id, whatever the clusters did.
+due_classifications <- function(classifications, subjects) {
+  out <- stats::setNames(integer(), character())
+  if (!length(classifications) || is.null(subjects) || !nrow(subjects)) return(out)
+  vid <- vapply(classifications, function(v) as.integer(v[["subject_id"]]), 1L)
+  when <- vapply(classifications, function(v) as.character(v[["judged_at"]]), "")
+  pub <- subjects[subjects$status %in% c("named", "judged"), , drop = FALSE]
+  for (r in seq_len(nrow(pub))) {
+    at <- as.character(pub$classification_at[r])
+    k <- which(vid == pub$subject_id[r] & (is.na(at) | when > at))
+    if (length(k)) out[as.character(pub$subject_id[r])] <- k[order(when[k], k, decreasing = TRUE)][1]
+  }
+  out
+}
+
 # A hold from the automatic checks, which no classification lifts.
 held_by_checks <- function(g) {
   r <- as.character(g$held_reason)
@@ -260,10 +276,12 @@ place_strays <- function(groups, from, strays, edges, settings) {
   groups
 }
 
-# Apply each group's classification: strays leave, then splits, holds and keeps, then merges.
-apply_classifications <- function(groups, classifications, edges, prev_members, settings, prev_subjects = NULL) {
+# Apply each group's classification: strays leave, then splits, holds and keeps, then merges. `pick` gives each
+# group's classification index directly, NA for none; without it groups match classifications by overlap.
+apply_classifications <- function(groups, classifications, edges, prev_members, settings, prev_subjects = NULL,
+                                  pick = NULL) {
   if (!length(groups) || !length(classifications)) return(groups)
-  pick <- match_classifications(groups, classifications, classification_thresholds(classifications, settings))
+  if (is.null(pick)) pick <- match_classifications(groups, classifications, classification_thresholds(classifications, settings))
   strays <- data.frame(package = character(), origin = character(), stringsAsFactors = FALSE)
   out <- list()
   from <- list()

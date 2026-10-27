@@ -364,3 +364,30 @@ test_that("drift is measured without strays and with the groups merged in", {
   w <- waiting_subjects(subj, m, no_basis, list(v(1L, p, "keep", name = "n", description = "d")), s)
   expect_equal(w$subject_id, 1L)
 })
+
+test_that("due takes only the latest newer classification", {
+  subj <- data.frame(subject_id = c(1L, 2L, 3L), status = c("judged", "named", "held"),
+                     classification_at = c("2026-10-21", NA, NA), stringsAsFactors = FALSE)
+  at <- function(x, when) { x$judged_at <- when; x }
+  cs <- list(at(v(1L, u, "keep", name = "n", description = "d"), "2026-10-21"),
+             at(v(1L, u, "hold"), "2026-11-01"), v(2L, st, "hold"), v(3L, st, "hold"))
+  expect_equal(due_classifications(cs, subj), c(`1` = 2L, `2` = 3L))
+})
+
+test_that("due is empty when no classification is newer", {
+  subj <- data.frame(subject_id = 1L, status = "judged", classification_at = "2026-11-01", stringsAsFactors = FALSE)
+  expect_length(due_classifications(list(v(1L, u, "hold")), subj), 0L)
+  expect_length(due_classifications(list(), subj), 0L)
+})
+
+test_that("apply_classifications uses a given pick", {
+  z <- sprintf("z%02d", 1:25)
+  cs <- list(v(3L, z, "keep", name = "Unit testing", description = "These packages test R code."))
+  gs <- list(grp("k1", u), grp("k2", st))
+  out <- apply_classifications(gs, cs, e, list(), s, pick = c(1L, NA))
+  expect_equal(c(out[[1]]$status, out[[1]]$name), c("judged", "Unit testing"))
+  expect_equal(out[[2]]$status, "named")
+  expect_false(any(vapply(apply_classifications(gs, cs, e, list(), s), `[[`, "", "status") == "judged"))
+  fx <- classification_effects(gs, out, cs, list(`3` = u), s, pick = c(1L, NA))
+  expect_equal(fx$pin, c(k1 = 3L))
+})

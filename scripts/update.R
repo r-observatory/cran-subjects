@@ -227,13 +227,13 @@ candidate_groups <- function(cl, packages, settings, keep = list()) {
 }
 
 # What the classifications did: subjects split, merge sources gone, and merged groups pinned to their target.
-classification_effects <- function(groups, after, classifications, prev_members, settings) {
+classification_effects <- function(groups, after, classifications, prev_members, settings, pick = NULL) {
   fx <- list(split = stats::setNames(integer(), character()), gone = integer(),
              pin = stats::setNames(integer(), character()),
              named = as.integer(unlist(lapply(classifications, function(v) c(v[["subject_id"]], v[["merge_with"]])))))
   fx$named <- fx$named[!is.na(fx$named)]
   if (!length(groups) || !length(classifications)) return(fx)
-  pick <- match_classifications(groups, classifications, classification_thresholds(classifications, settings))
+  if (is.null(pick)) pick <- match_classifications(groups, classifications, classification_thresholds(classifications, settings))
   keys <- vapply(after, `[[`, "", "key")
   hit <- which(!is.na(pick))
   for (i in hit) {
