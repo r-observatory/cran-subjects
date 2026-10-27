@@ -458,3 +458,29 @@ test_that("a daily run carries the weekly clusters unchanged", {
   expect_equal(q(out2, "SELECT * FROM weekly_clusters"), q(r$out, "SELECT * FROM weekly_clusters"))
   expect_equal(nrow(q(out2, "SELECT * FROM weekly_clusters")), 83L)
 })
+
+test_that("steady groups carry a published subject's members and fields", {
+  r <- cold(); pk <- read_inputs(r$db)$packages; pk <- pk[pk$name != "pal30", ]
+  ps <- q(r$out, "SELECT * FROM subjects ORDER BY subject_id"); pm <- q(r$out, "SELECT * FROM subject_members")
+  g <- steady_groups(typed(ps, "subjects"), typed(pm, "subject_members"), pk)
+  expect_length(g, 2L)
+  expect_equal(vapply(g, `[[`, "", "key"), sprintf("s%05d", ps$subject_id))
+  expect_true(all(vapply(g, function(x) isTRUE(x$steady), NA)))
+  expect_equal(vapply(g, `[[`, 1L, "subject_id"), ps$subject_id)
+  pal <- g[[match(subject_id_of(r$out, "colour-palettes"), ps$subject_id)]]
+  expect_equal(pal$members, sprintf("pal%02d", 1:29))
+  expect_equal(c(pal$name, pal$status), c(ps$name[ps$slug == "colour-palettes"], "named"))
+})
+
+test_that("a held subject is not steady", {
+  r <- cold(); ps <- typed(q(r$out, "SELECT * FROM subjects ORDER BY subject_id"), "subjects")
+  ps$status[1] <- "held"; ps$held_reason[1] <- "classification"
+  g <- steady_groups(ps, typed(q(r$out, "SELECT * FROM subject_members"), "subject_members"), read_inputs(r$db)$packages)
+  expect_length(g, 1L); expect_equal(g[[1]]$subject_id, ps$subject_id[2])
+})
+
+test_that("pool_clusters drops the taken packages", {
+  cl <- data.frame(package = c("a", "b", "c", "d"), cluster = c(1L, 1L, 2L, 2L), stringsAsFactors = FALSE)
+  p <- pool_clusters(cl, c("a", "b"))
+  expect_equal(p$package, c("c", "d")); expect_equal(p$cluster, c(2L, 2L))
+})

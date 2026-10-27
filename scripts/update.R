@@ -226,6 +226,26 @@ candidate_groups <- function(cl, packages, settings, keep = list()) {
   })
 }
 
+# Last run's published subjects as groups, with their ids, fields and the primary members still on CRAN.
+# Only a classification changes them.
+steady_groups <- function(subjects, members, packages) {
+  pub <- subjects[subjects$status %in% PUBLISHED, , drop = FALSE]
+  pub <- pub[order(pub$subject_id), , drop = FALSE]
+  open <- members[members$is_primary %in% 1L & is.na(members$left) & members$package %in% packages$name, , drop = FALSE]
+  lapply(seq_len(nrow(pub)), function(r) {
+    p <- pub[r, , drop = FALSE]
+    g <- empty_group(sprintf("s%05d", p$subject_id), sort(open$package[open$subject_id == p$subject_id], method = "radix"),
+                     p$status, p$held_reason)
+    for (f in c("name", "description", "named_by", "named_at", "classification_at")) g[[f]] <- p[[f]]
+    g$steady <- TRUE
+    g$subject_id <- as.integer(p$subject_id)
+    g
+  })
+}
+
+# The clusters without the packages steady subjects hold, so new subjects form only from the rest.
+pool_clusters <- function(cl, taken) cl[!cl$package %in% taken, , drop = FALSE]
+
 # What the classifications did: subjects split, merge sources gone, and merged groups pinned to their target.
 classification_effects <- function(groups, after, classifications, prev_members, settings, pick = NULL) {
   fx <- list(split = stats::setNames(integer(), character()), gone = integer(),
@@ -568,10 +588,11 @@ daily_pass <- function(prev, inputs, settings, today, tick) {
        calls = 0L)
 }
 
-# New packages join the published subject holding enough of their link weight, plus second ones.
-place_new <- function(fresh, inputs, ps, open, settings) {
+# New packages join the published subject holding enough of their link weight, plus second ones. The weekly
+# run passes its own embedding.
+place_new <- function(fresh, inputs, ps, open, settings, emb = NULL) {
   pk <- inputs$packages
-  emb <- embed_packages(inputs, settings)
+  if (is.null(emb)) emb <- embed_packages(inputs, settings)
   dep <- dependency_edges(inputs$deps, pk$name)
   e <- combine_edges(knn_rows(emb$Z, fresh, settings$knn_k, settings$knn_min_sim),
                      dep[dep$from %in% fresh | dep$to %in% fresh, , drop = FALSE])
