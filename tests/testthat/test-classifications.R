@@ -293,7 +293,7 @@ test_that("validate_classification checks merge targets and where packages are p
   expect_true(length(validate_classification(v(3L, u, "rename"))) > 0L)
   expect_true(length(validate_classification(modifyList(v(3L, u, "hold"), list(judged_at = "soon")))) > 0L)
 })
-test_that("waiting_subjects lists new names, name holds and drifted classifications", {
+test_that("waiting_subjects lists new names, name holds, drifted subjects and drifted holds", {
   p <- sprintf("p%02d", 1:10); q <- sprintf("q%02d", 1:10)
   subj <- data.frame(subject_id = 1:8, slug = paste0("s", 1:8), name = paste("Name", 1:8), description = NA,
     status = c("named", "held", "judged", "judged", "held", "held", "retired", "held"),
@@ -302,59 +302,63 @@ test_that("waiting_subjects lists new names, name holds and drifted classificati
     redirect_to = NA, size = 10L)
   mem <- function(id, pk, primary = 1L, left = NA) data.frame(subject_id = id, package = pk, is_core = 0L,
     is_primary = primary, reason_kind = NA, reason_value = NA, joined = "2026-10-01", left = left)
-  m <- rbind(mem(3L, p), mem(3L, q, primary = 0L), mem(3L, paste0("r", 1:10), left = "2026-10-15"),
+  m <- rbind(mem(1L, paste0("n", 1:10)), mem(3L, p), mem(3L, q, primary = 0L), mem(3L, paste0("r", 1:10), left = "2026-10-15"),
              mem(4L, c(p[1:5], q[1:5])), mem(5L, p), mem(6L, q), mem(7L, q), mem(8L, q))
   vs <- list(v(3L, p, "keep", name = "n", description = "d"), v(4L, p, "keep", name = "n", description = "d"),
              v(5L, p, "hold"), v(6L, p, "hold"), v(7L, p, "keep", name = "n", description = "d"), v(8L, p, "hold"))
-  w <- waiting_subjects(subj, m, no_basis, vs, s)
+  # Subject 3 was classified in the cluster of the p packages and still sits there; 4 sat in a cluster of its own.
+  cb <- data.frame(subject_id = c(rep(3L, 10), rep(4L, 10)), package = c(p, p[1:5], q[1:5]))
+  cl <- data.frame(package = c(p, q), cluster = rep(1:2, each = 10))
+  w <- waiting_subjects(subj, m, cb, vs, s, cl)
   expect_named(w, c("subject_id", "slug", "name", "why"))
   expect_equal(w$subject_id, c(1L, 2L, 4L, 6L))
   expect_equal(w$why, c("new name", "held: name_generic", "drifted", "drifted"))
   expect_equal(w$slug, c("s1", "s2", "s4", "s6"))
+  expect_equal(waiting_subjects(subj, m, cb, vs, s)$subject_id, c(1L, 2L, 6L))
+  expect_equal(waiting_subjects(subj, m, no_basis, vs, s, cl)$subject_id, c(1L, 2L, 6L))
   expect_equal(nrow(waiting_subjects(subj[0, ], m[0, ], no_basis, list(), s)), 0L)
 })
-test_that("a judged split part drifts against its name basis", {
-  p <- sprintf("p%02d", 1:10); q <- sprintf("q%02d", 1:15)
-  subj <- data.frame(subject_id = c(11L, 12L), slug = c("a", "b"), name = c("Part A", "Part B"), status = "judged",
-                     held_reason = NA, stringsAsFactors = FALSE)
-  m <- data.frame(subject_id = rep(c(11L, 12L), each = 10), package = c(p, q[1:10]), is_primary = 1L, left = NA)
-  split_v <- list(v(3L, c(p, q[1:10]), "split", groups = list(list(name = "Part A", packages = p[1:2]),
-                                                              list(name = "Part B", packages = q[1:2]))))
-  # Part A matches its basis; Part B shares 5 of 15 packages with its basis.
-  basis <- data.frame(subject_id = rep(c(11L, 12L), each = 10), package = c(p, q[c(1:5, 11:15)]))
-  w <- waiting_subjects(subj, m, basis, split_v, s)
-  expect_equal(w$subject_id, 12L); expect_equal(w$why, "drifted")
-  # Part B now shares 9 of 11 packages with its basis, above drift_jaccard.
-  basis$package[basis$subject_id == 12L] <- q[c(1:9, 11)]
-  expect_equal(nrow(waiting_subjects(subj, m, basis, split_v, s)), 0L)
-  expect_equal(nrow(waiting_subjects(subj, m, basis, list(), s)), 0L)
-  expect_equal(nrow(waiting_subjects(subj, m, no_basis, split_v, s)), 0L)
-})
-test_that("a split whose cluster drifts waits once, as the subject it split", {
-  x <- sprintf("x%02d", 1:25)
+test_that("split siblings that share a cluster do not drift, and a retired split parent never waits", {
   subj <- data.frame(subject_id = c(3L, 7L, 8L), slug = c("old", "unit-testing", "statistical-tests"),
                      name = c("Old subject", "Unit testing", "Statistical tests"), status = c("retired", "judged", "judged"),
                      held_reason = NA, classification_at = c(NA, "2026-11-01", "2026-11-01"), stringsAsFactors = FALSE)
   m <- data.frame(subject_id = rep(c(7L, 8L), each = 25), package = c(u, st), is_primary = 1L, left = NA)
-  basis <- data.frame(subject_id = rep(c(7L, 8L), each = 25), package = c(u, st))
+  cb <- data.frame(subject_id = rep(c(7L, 8L), each = 50), package = c(u, st, u, st))
   cv <- list(v(3L, c(u, st), "split", groups = list(list(name = "Unit testing", packages = u[1:5]),
                                                     list(name = "Statistical tests", packages = st[1:5]))))
-  cl <- function(...) data.frame(package = c(...), cluster = 4L, stringsAsFactors = FALSE)
-  w <- waiting_subjects(subj, m, basis, cv, s, cl(u, st, x))
-  expect_equal(w$subject_id, 3L); expect_equal(w$why, "split drifted"); expect_equal(w$slug, "old")
-  expect_equal(split_cluster(cv[[1]], rbind(cl(u, st, x), data.frame(package = "z1", cluster = 5L))), sort(c(u, st, x)))
-  # A cluster that still matches, or no longer carries the split at all, sends nothing.
-  expect_equal(nrow(waiting_subjects(subj, m, basis, cv, s, cl(u, st, x[1:5]))), 0L)
-  expect_equal(nrow(waiting_subjects(subj, m, basis, cv, s, cl(u, st, x, sprintf("y%02d", 1:30)))), 0L)
-  expect_equal(nrow(waiting_subjects(subj, m, basis, cv, s)), 0L)
-  # Nor does a split with no live part from it.
-  subj$classification_at[2:3] <- "2026-12-01"
-  expect_equal(nrow(waiting_subjects(subj, m, basis, cv, s, cl(u, st, x))), 0L)
+  x <- sprintf("x%02d", 1:5)
+  cl <- data.frame(package = c(u, st, x), cluster = 4L)
+  expect_equal(nrow(waiting_subjects(subj, m, cb, cv, s, cl)), 0L)
+  # The shared cluster splits in two, so each part's cluster now holds half of the one it was classified in.
+  cl$cluster[cl$package %in% st] <- 5L
+  w <- waiting_subjects(subj, m, cb, cv, s, cl)
+  expect_equal(w$subject_id, c(7L, 8L)); expect_equal(w$why, c("drifted", "drifted"))
 })
-test_that("drift is measured without strays and with the groups merged in", {
+test_that("a published subject under the keep size waits as too small, whatever else it would wait for", {
+  p <- sprintf("p%02d", 1:9)
+  subj <- data.frame(subject_id = c(1L, 2L, 3L), slug = c("a", "b", "c"), name = c("A", "B", "C"),
+                     status = c("named", "judged", "judged"), held_reason = NA, stringsAsFactors = FALSE)
+  m <- data.frame(subject_id = c(rep(1L, 9), rep(2L, 9)), package = c(p, p), is_primary = 1L, left = NA)
+  cb <- data.frame(subject_id = 2L, package = "elsewhere")
+  w <- waiting_subjects(subj, m, cb, list(), s, data.frame(package = p, cluster = 1L))
+  expect_equal(w$subject_id, 1:3); expect_equal(w$why, rep("too small", 3))
+})
+test_that("home_cluster takes the cluster holding most of the packages, ties to the lower number", {
+  cl <- data.frame(package = c("a", "b", "c", "d", "e"), cluster = c(7L, 7L, 3L, 3L, 9L))
+  expect_equal(home_cluster(c("a", "c"), cl), c("c", "d"))
+  expect_equal(home_cluster(c("a", "b", "c"), cl), c("a", "b"))
+  expect_equal(home_cluster("zz", cl), character())
+  expect_equal(home_cluster("a", NULL), character())
+})
+test_that("next_classification_day gives the first of the next month", {
+  expect_equal(next_classification_day("2026-10-26"), "2026-11-01")
+  expect_equal(next_classification_day("2026-12-15"), "2027-01-01")
+  expect_equal(next_classification_day("2026-11-01"), "2026-12-01")
+})
+test_that("a classification hold drifts without its strays and with the groups merged in", {
   p <- sprintf("p%02d", 1:10)
-  subj <- data.frame(subject_id = c(1L, 2L), slug = c("s1", "s2"), name = c("Name 1", "Name 2"), status = "judged",
-                     held_reason = NA, stringsAsFactors = FALSE)
+  subj <- data.frame(subject_id = c(1L, 2L), slug = c("s1", "s2"), name = c("Name 1", "Name 2"), status = "held",
+                     held_reason = "classification", stringsAsFactors = FALSE)
   m <- data.frame(subject_id = c(rep(1L, 6), rep(2L, 50)), package = c(p[5:10], u, st), is_primary = 1L, left = NA)
   vs <- list(v(1L, p, "keep", name = "n", description = "d", strays = p[1:4]),
              v(2L, st, "keep", name = "n", description = "d"), v(3L, u, "merge", merge_with = 2L))
@@ -363,4 +367,56 @@ test_that("drift is measured without strays and with the groups merged in", {
   expect_equal(w$subject_id, 2L); expect_equal(w$why, "drifted")
   w <- waiting_subjects(subj, m, no_basis, list(v(1L, p, "keep", name = "n", description = "d")), s)
   expect_equal(w$subject_id, 1L)
+})
+
+test_that("due takes only the latest newer classification", {
+  subj <- data.frame(subject_id = c(1L, 2L, 3L), status = c("judged", "named", "held"),
+                     classification_at = c("2026-10-21", NA, NA), stringsAsFactors = FALSE)
+  at <- function(x, when) { x$judged_at <- when; x }
+  cs <- list(at(v(1L, u, "keep", name = "n", description = "d"), "2026-10-21"),
+             at(v(1L, u, "hold"), "2026-11-01"), v(2L, st, "hold"), v(3L, st, "hold"))
+  expect_equal(due_classifications(cs, subj), c(`1` = 2L, `2` = 3L))
+})
+
+test_that("due is empty when no classification is newer", {
+  subj <- data.frame(subject_id = 1L, status = "judged", classification_at = "2026-11-01", stringsAsFactors = FALSE)
+  expect_length(due_classifications(list(v(1L, u, "hold")), subj), 0L)
+  expect_length(due_classifications(list(), subj), 0L)
+})
+
+test_that("apply_classifications uses a given pick", {
+  z <- sprintf("z%02d", 1:25)
+  cs <- list(v(3L, z, "keep", name = "Unit testing", description = "These packages test R code."))
+  gs <- list(grp("k1", u), grp("k2", st))
+  out <- apply_classifications(gs, cs, e, list(), s, pick = c(1L, NA))
+  expect_equal(c(out[[1]]$status, out[[1]]$name), c("judged", "Unit testing"))
+  expect_equal(out[[2]]$status, "named")
+  expect_false(any(vapply(apply_classifications(gs, cs, e, list(), s), `[[`, "", "status") == "judged"))
+  fx <- classification_effects(gs, out, cs, list(`3` = u), s, pick = c(1L, NA))
+  expect_equal(fx$pin, c(k1 = 3L))
+})
+test_that("a judged subject whose members scatter out of a cluster that barely changed is drifted", {
+  sm <- sprintf("m%02d", 1:14); big <- c(sm, u, sprintf("x%02d", 1:21))
+  subj <- data.frame(subject_id = 9L, slug = "choice", name = "Choice", status = "judged", held_reason = NA,
+                     stringsAsFactors = FALSE)
+  m <- data.frame(subject_id = 9L, package = sm, is_primary = 1L, left = NA)
+  cb <- data.frame(subject_id = 9L, package = big)
+  # Eight members stay in the cluster, so it still overlaps the old one by 54 of 60, while six scatter.
+  cl <- data.frame(package = c(big, "y1", "y2"), cluster = c(rep(1L, 60), 2L, 3L))
+  cl$cluster[cl$package %in% sm[9:11]] <- 2L; cl$cluster[cl$package %in% sm[12:14]] <- 3L
+  w <- waiting_subjects(subj, m, cb, list(), s, cl)
+  expect_equal(w$why, "drifted")
+  cl$cluster[cl$package %in% sm] <- 1L
+  expect_equal(nrow(waiting_subjects(subj, m, cb, list(), s, cl)), 0L)
+})
+test_that("a small subject leaves the queue once a classification newer than its last loss applies", {
+  p <- sprintf("p%02d", 1:12)
+  subj <- data.frame(subject_id = 2L, slug = "b", name = "B", status = "judged", held_reason = NA,
+                     classification_at = "2026-11-01", stringsAsFactors = FALSE)
+  m <- data.frame(subject_id = 2L, package = p, is_primary = 1L, left = c(rep(NA, 9), rep("2026-10-26", 3)))
+  expect_equal(nrow(waiting_subjects(subj, m, no_basis, list(), s)), 0L)
+  m$left[12] <- "2026-11-09"
+  expect_equal(waiting_subjects(subj, m, no_basis, list(), s)$why, "too small")
+  subj$classification_at <- NA
+  expect_equal(waiting_subjects(subj, m, no_basis, list(), s)$why, "too small")
 })

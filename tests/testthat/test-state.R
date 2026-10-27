@@ -12,7 +12,7 @@ test_that("read_state gives NULL for a cold start and every table otherwise", {
   s <- read_state(state_file())
   expect_setequal(names(s), c("subjects", "subject_members", "subject_name_basis", "subject_task_views",
                               "collections", "collection_members", "collection_mentions",
-                              "seen_packages", "pipeline_runs", "weekly_clusters"))
+                              "seen_packages", "pipeline_runs", "weekly_clusters", "subject_cluster_basis"))
   expect_equal(nrow(s$subjects), 0L)
   expect_true("left" %in% names(s$subject_members))
   expect_named(s$weekly_clusters, c("package", "cluster"))
@@ -22,6 +22,12 @@ test_that("read_state reads a state from before weekly_clusters, leaving them NU
   s <- read_state(state_file("weekly_clusters"))
   expect_null(s$weekly_clusters)
   expect_equal(nrow(s$subjects), 0L)
+})
+
+test_that("read_state reads a state from before subject_cluster_basis, leaving it NULL", {
+  s <- read_state(state_file("subject_cluster_basis"))
+  expect_null(s$subject_cluster_basis)
+  expect_named(read_state(state_file())$subject_cluster_basis, c("subject_id", "package"))
 })
 
 test_that("read_state stops on a missing table", {

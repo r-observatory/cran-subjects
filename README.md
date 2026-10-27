@@ -2,7 +2,7 @@
 
 This pipeline finds subjects among CRAN packages for the R Observatory site. A subject is a group of packages that belong together, found from package text, repository topics and dependencies. The pipeline also finds community collections, such as the tidyverse, where a community has already declared its own set of packages. Subjects and collections are kept apart, task views are not changed, and Bioconductor packages keep their biocViews.
 
-It reads the latest `observatory.db` from the `r-observatory/data` release. Each week it clusters current CRAN packages with TF-IDF, a truncated SVD, nearest neighbours and dependency links, starting from last week's clusters, keeps each subject's id and slug stable from run to run, and names new subjects with a free open model, Qwen3 8B, run by llama.cpp with both pinned by SHA-256. Each month an LLM classifies every subject as keep, split, merge or hold, and those classifications in `classifications/subjects.json` are applied on the next weekly run. Each day it places new packages into existing subjects and finds collections again. The data is written to a SQLite database and published to the `r-observatory/cran-subjects` GitHub repository for downstream consumers.
+It reads the latest `observatory.db` from the `r-observatory/data` release. Each week it clusters current CRAN packages with TF-IDF, a truncated SVD, nearest neighbours and dependency links, starting from last week's clusters. Published subjects hold steady between classifications: each keeps its id, slug, name and packages, new packages join it by their links, and new subjects form only from packages that no published subject holds. New subjects are named with a free open model, Qwen3 8B, run by llama.cpp with both pinned by SHA-256. Each month an LLM classifies subjects as keep, split, merge or hold, and those classifications in `classifications/subjects.json` are applied by subject id on the next weekly run. Only a classification retires, splits or merges a published subject, always with a redirect. Each day it places new packages into existing subjects and finds collections again. The data is written to a SQLite database and published to the `r-observatory/cran-subjects` GitHub repository for downstream consumers.
 
 ## Data Access
 
@@ -65,6 +65,7 @@ for row in con.execute("""
 - `seen_packages` - the first day each package was seen: `package`, `first_seen`.
 - `pipeline_runs` - one row per run: `run_at`, `mode`, `n_packages`, `n_subjects_published`, `n_held`, `n_named_calls`, `n_collections`.
 - `weekly_clusters` - the cluster each package fell in on the last weekly run, before any classification: `package`, `cluster`. The next weekly run starts its clustering from them.
+- `subject_cluster_basis` - the cluster each subject sat in when it was last classified or formed: `subject_id`, `package`. A judged subject whose cluster this week overlaps it less than 0.7 has drifted and waits for the next classification.
 
 ## Running
 
@@ -74,7 +75,7 @@ Rscript scripts/judge.R prepare out/judge/    # monthly, from /judge-subjects
 Rscript tests/testthat.R                      # unit tests
 ```
 
-Each month a reminder issue lists the subjects waiting for a classification. Run `/judge-subjects` in this repository, then commit `classifications/subjects.json`.
+Each month a reminder issue lists the subjects waiting for a classification: new names, held names, subjects that drifted from the clustering, and published subjects under ten packages. Run `/judge-subjects` in this repository, then commit `classifications/subjects.json`.
 
 ## Feedback
 

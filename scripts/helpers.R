@@ -183,6 +183,11 @@ export_db <- function(path, tables) {
     "CREATE TABLE weekly_clusters (
        package TEXT PRIMARY KEY,
        cluster INTEGER
+     )",
+    "CREATE TABLE subject_cluster_basis (
+       subject_id INTEGER,
+       package    TEXT,
+       PRIMARY KEY (subject_id, package)
      )"
   )
   for (s in ddl) DBI::dbExecute(con, s)

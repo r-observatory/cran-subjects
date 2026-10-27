@@ -13,9 +13,9 @@ remind_write <- function(db_path, classifications_path, out_dir, settings) {
   on.exit(DBI::dbDisconnect(con), add = TRUE)
   subjects <- DBI::dbGetQuery(con, "SELECT * FROM subjects")
   members <- DBI::dbGetQuery(con, "SELECT * FROM subject_members")
-  basis <- DBI::dbGetQuery(con, "SELECT * FROM subject_name_basis")
-  clusters <- if (DBI::dbExistsTable(con, "weekly_clusters")) DBI::dbGetQuery(con, "SELECT * FROM weekly_clusters")
-  waiting <- waiting_subjects(subjects, members, basis, read_classifications(classifications_path), settings, clusters)
+  read_if <- function(t) if (DBI::dbExistsTable(con, t)) DBI::dbGetQuery(con, sprintf('SELECT * FROM "%s"', t))
+  waiting <- waiting_subjects(subjects, members, read_if("subject_cluster_basis"), read_classifications(classifications_path),
+                              settings, read_if("weekly_clusters"))
   n <- nrow(waiting)
   writeLines(as.character(n), file.path(out_dir, "remind-count.txt"))
   writeLines(c(reminder_title(n), "", reminder_body(waiting)), file.path(out_dir, "remind.md"))

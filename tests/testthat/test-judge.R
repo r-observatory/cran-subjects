@@ -239,50 +239,42 @@ test_that("the prompt files follow the rulings", {
   expect_equal(sch$properties$groups$items$required, list("name", "packages"))
 })
 
-test_that("a split that drifts from its cluster is queued as the subject it split, with the whole cluster", {
+test_that("prepare queues a judged subject whose cluster moved, with its own members", {
   z <- cold()
   con <- DBI::dbConnect(RSQLite::SQLite(), z$out)
-  live <- DBI::dbGetQuery(con, "SELECT * FROM subjects WHERE status != 'retired' ORDER BY subject_id")
-  first <- DBI::dbGetQuery(con, sprintf("SELECT package FROM subject_members WHERE subject_id = %d AND is_primary = 1",
-                                        live$subject_id[1]))$package
-  cl <- DBI::dbGetQuery(con, "SELECT package, cluster FROM weekly_clusters")
-  home <- sort(cl$package[cl$cluster == cl$cluster[match(first[1], cl$package)]], method = "radix")
-  # Both live subjects are parts of a split judged on 2026-10-01, whose subject is retired.
   DBI::dbExecute(con, "UPDATE subjects SET status = 'judged', classification_at = '2026-10-01'")
-  parent <- live[1, ]
-  parent$subject_id <- 90L; parent$slug <- "old-subject"; parent$name <- "Old subject"; parent$status <- "retired"
-  DBI::dbWriteTable(con, "subjects", parent, append = TRUE)
+  ids <- DBI::dbGetQuery(con, "SELECT subject_id FROM subjects ORDER BY subject_id")$subject_id
+  # The first subject was classified in a cluster it no longer sits in.
+  DBI::dbExecute(con, sprintf("DELETE FROM subject_cluster_basis WHERE subject_id = %d", ids[1]))
+  DBI::dbExecute(con, sprintf("INSERT INTO subject_cluster_basis VALUES (%d, 'elsewhere')", ids[1]))
+  own <- DBI::dbGetQuery(con, sprintf("SELECT package FROM subject_members WHERE subject_id = %d AND is_primary = 1", ids[1]))$package
   DBI::dbDisconnect(con)
-  queue_for <- function(n_gone) {
-    out <- withr::local_tempdir(.local_envir = parent.frame())
-    vf <- withr::local_tempfile(fileext = ".json", .local_envir = parent.frame())
-    gone <- sprintf("gone%02d", seq_len(n_gone))
-    jsonlite::write_json(list(list(subject_id = 90L, members = I(sort(c(home, gone), method = "radix")), fingerprint = "x",
-                                   classification = "split", judged_at = "2026-10-01", model = "llm",
-                                   groups = list(list(name = live$name[1], packages = I(home[1:3])),
-                                                 list(name = live$name[2], packages = I(home[4:6]))))),
-                         vf, auto_unbox = TRUE)
-    judge_prepare(z$out, z$db, out, vf, settings = st)
-    list(out = out, vf = vf, queue = read_lines_json(file.path(out, "judge-queue.jsonl")))
-  }
-  # Packages gone from the cluster put it under drift_jaccard against the split, not under match_jaccard.
-  p <- queue_for(ceiling(0.6 * length(home)))
-  expect_length(p$queue, 1L)
-  e <- p$queue[[1]]
-  expect_equal(as.integer(e$subject_id), 90L)
-  expect_equal(unlist(e$members), home)
-  expect_match(e$prompt, "Current name: Old subject", fixed = TRUE)
-  listed <- unlist(e$listed)
-  write_lines_json(list(list(subject_id = 90L, classification = "split",
-                             groups = list(list(name = "Part one", description = "These packages share one subject.",
-                                                packages = as.list(listed[1:2])),
-                                           list(name = "Part two", description = "These packages share another subject.",
-                                                packages = as.list(listed[3:4]))))),
-                   file.path(p$out, "judge-answers.jsonl"))
-  expect_equal(judge_merge(p$out, p$vf, "llm", "2026-11-01")$invalid, 0L)
-  again <- read_classifications(p$vf)[[1]]
-  expect_equal(again$judged_at, "2026-11-01")
-  expect_equal(again$members, home)
-  # A cluster still close to the split sends nothing.
-  expect_length(queue_for(floor(0.2 * length(home)))$queue, 0L)
+  out <- withr::local_tempdir(); vf <- withr::local_tempfile(fileext = ".json"); writeLines("[]", vf)
+  judge_prepare(z$out, z$db, out, vf, settings = st)
+  queue <- read_lines_json(file.path(out, "judge-queue.jsonl"))
+  expect_length(queue, 1L)
+  expect_equal(as.integer(queue[[1]]$subject_id), ids[1])
+  expect_equal(unlist(queue[[1]]$members), sort(own, method = "radix"))
+})
+
+test_that("an emptied subject is queued with its last members, and a merge forwards it to the target", {
+  z <- cold()
+  rd <- function(db, sql) { con <- DBI::dbConnect(RSQLite::SQLite(), db); on.exit(DBI::dbDisconnect(con)); DBI::dbGetQuery(con, sql) }
+  ids <- rd(z$out, "SELECT subject_id, slug FROM subjects")
+  pal <- ids$subject_id[ids$slug == "colour-palettes"]; surv <- ids$subject_id[ids$slug == "survival-analysis"]
+  con <- DBI::dbConnect(RSQLite::SQLite(), z$db)
+  DBI::dbExecute(con, "UPDATE packages SET is_archived = 1 WHERE name LIKE 'pal%'"); DBI::dbDisconnect(con)
+  vf <- withr::local_tempfile(fileext = ".json"); writeLines("[]", vf)
+  out2 <- run_update(fake_io(z$db, z$out), withr::local_tempdir(), "weekly", vf, st)
+  jd <- withr::local_tempdir()
+  judge_prepare(out2, z$db, jd, vf, settings = st)
+  e <- Filter(function(x) as.integer(x$subject_id) == pal, read_lines_json(file.path(jd, "judge-queue.jsonl")))
+  expect_length(e, 1L)
+  expect_equal(unlist(e[[1]]$members), sprintf("pal%02d", 1:30))
+  write_lines_json(list(list(subject_id = pal, classification = "merge", merge_with = surv)), file.path(jd, "judge-answers.jsonl"))
+  expect_equal(judge_merge(jd, vf, "llm", "2026-11-01")$invalid, 0L)
+  io <- fake_io(z$db, out2); io$today <- function() "2026-11-02"
+  out3 <- run_update(io, withr::local_tempdir(), "weekly", vf, st)
+  s <- rd(out3, sprintf("SELECT status, redirect_to FROM subjects WHERE subject_id = %d", pal))
+  expect_equal(s, data.frame(status = "retired", redirect_to = surv))
 })

@@ -78,9 +78,10 @@ test_that("export_db creates every table with its columns", {
   con <- DBI::dbConnect(RSQLite::SQLite(), db); on.exit(DBI::dbDisconnect(con))
   expect_setequal(DBI::dbListTables(con), c("subjects", "subject_members", "subject_name_basis",
     "subject_task_views", "collections", "collection_members", "collection_mentions",
-    "seen_packages", "pipeline_runs", "weekly_clusters"))
+    "seen_packages", "pipeline_runs", "weekly_clusters", "subject_cluster_basis"))
   expect_true("held_reason" %in% DBI::dbListFields(con, "subjects"))
   expect_equal(DBI::dbListFields(con, "weekly_clusters"), c("package", "cluster"))
+  expect_equal(DBI::dbListFields(con, "subject_cluster_basis"), c("subject_id", "package"))
 })
 
 test_that("default_settings carries every constant", {

@@ -37,7 +37,8 @@ STATE_COLS <- list(
   pipeline_runs = c(run_at = "character", mode = "character", n_packages = "integer",
                     n_subjects_published = "integer", n_held = "integer", n_named_calls = "integer",
                     n_collections = "integer"),
-  weekly_clusters = c(package = "character", cluster = "integer")
+  weekly_clusters = c(package = "character", cluster = "integer"),
+  subject_cluster_basis = c(subject_id = "integer", package = "character")
 )
 
 # A state table with its export columns and types; NULL gives zero rows.
@@ -129,8 +130,19 @@ weekly_pass <- function(prev, inputs, classifications, io, settings, today, tick
   tick("text")
   edges <- combine_edges(knn_edges(emb$Z, settings$knn_k, settings$knn_min_sim),
                          dependency_edges(inputs$deps, pk$name))
-  emb$Z <- NULL
   tick("knn")
+  # Published subjects hold steady, and packages new since the last run join them by the daily rule.
+  steady <- steady_groups(ps, pm, pk)
+  rows <- pm[is.na(pm$left) & pm$package %in% pk$name, , drop = FALSE]
+  fresh <- setdiff(pk$name, c(typed(prev$seen_packages, "seen_packages")$package, rows$package))
+  placed <- if (length(steady) && length(fresh)) place_new(fresh, inputs, ps, rows, settings, emb)
+  placed <- if (is.null(placed)) typed(NULL, "subject_members") else placed[placed$is_primary %in% 1L, , drop = FALSE]
+  for (i in seq_along(steady)) {
+    joins <- placed$package[placed$subject_id == steady[[i]]$subject_id]
+    if (length(joins)) steady[[i]]$members <- sort(c(steady[[i]]$members, joins), method = "radix")
+  }
+  emb$Z <- NULL
+  tick("placement")
   start <- prev$weekly_clusters
   n_start <- sum(pk$name %in% start$package)
   if (is.function(io$log)) {
@@ -143,12 +155,22 @@ weekly_pass <- function(prev, inputs, classifications, io, settings, today, tick
   open <- pm[pm$is_primary %in% 1L & is.na(pm$left), , drop = FALSE]
   prev_members <- lapply(live, function(id) sort(open$package[open$subject_id == id], method = "radix"))
   names(prev_members) <- as.character(live)
-  published <- prev_members[as.character(intersect(live, ps$subject_id[ps$status %in% PUBLISHED]))]
-  groups <- candidate_groups(cl, pk, settings, published)
+  # New subjects form only from the packages no steady subject holds. Strays a classification moved out of a
+  # subject stay out too, as before; a held subject's strays still go with its cluster.
+  taken <- unlist(lapply(steady, `[[`, "members"), use.names = FALSE)
+  held <- ps$subject_id[ps$status %in% "held"]
+  strays <- unlist(lapply(classifications, function(v) if (!as.integer(v[["subject_id"]]) %in% held) v[["strays"]]))
+  groups <- c(steady, candidate_groups(pool_clusters(cl, c(taken, strays)), pk, settings))
   tick("clusters")
 
-  after <- apply_classifications(groups, classifications, edges, prev_members, settings, ps)
-  fx <- classification_effects(groups, after, classifications, prev_members, settings)
+  pick <- classification_picks(groups, classifications, ps, settings)
+  after <- apply_classifications(groups, classifications, edges, prev_members, settings, ps, pick)
+  fx <- pin_steady(classification_effects(groups, after, classifications, prev_members, settings, pick), after)
+  stuck <- unapplied(groups, after, classifications, pick)
+  if (length(stuck) && is.function(io$log)) {
+    io$log(sprintf("%d due classification%s could not apply, for subject %s", length(stuck),
+                   if (length(stuck) == 1L) "" else "s", paste(stuck, collapse = ", ")))
+  }
   ids <- assign_ids(after, prev_members, ps, fx, settings)
   kept <- drop_new_small(after, ids, prev_members, settings)
   after <- kept$groups
@@ -184,14 +206,33 @@ weekly_pass <- function(prev, inputs, classifications, io, settings, today, tick
   basis <- rbind(keep, typed(data.frame(
     subject_id = as.integer(rep(names(nm$basis), lengths(nm$basis))),
     package = unlist(nm$basis, use.names = FALSE), stringsAsFactors = FALSE), "subject_name_basis"))
+  clusters <- cluster_basis_rows(after, gid, ps, typed(prev$subject_cluster_basis, "subject_cluster_basis"), cl)
+  if (is.function(io$log)) {
+    w <- published_waiting(subjects, members, clusters, cl, settings)
+    io$log(sprintf("published subjects waiting for the classification on %s: %d drifted from the clustering, %d too small",
+                   next_classification_day(today), sum(w == "drifted"), sum(w == "too small")))
+  }
   tick("members")
 
   list(tables = list(subjects = with_sizes(subjects, members), subject_members = members,
                      subject_name_basis = sort_rows(basis, c("subject_id", "package")),
                      subject_task_views = task_view_rows(members, inputs$views),
                      seen_packages = seen_rows(prev$seen_packages, pk$name, today),
-                     weekly_clusters = typed(cl, "weekly_clusters")),
+                     weekly_clusters = typed(cl, "weekly_clusters"), subject_cluster_basis = clusters),
        calls = nm$calls)
+}
+
+# The cluster each live subject was last classified in. A steady subject keeps its own until a classification
+# applies to it; every other subject takes the cluster holding most of its members this week.
+cluster_basis_rows <- function(groups, gid, ps, prev_basis, cl) {
+  rows <- lapply(seq_along(groups), function(i) {
+    g <- groups[[i]]
+    old <- prev_basis$package[prev_basis$subject_id == gid[i]]
+    same <- identical(g$classification_at, ps$classification_at[match(gid[i], ps$subject_id)])
+    pk <- if (isTRUE(g$steady) && length(old) && same) old else home_cluster(g$members, cl)
+    if (length(pk)) data.frame(subject_id = gid[i], package = pk, stringsAsFactors = FALSE)
+  })
+  sort_rows(typed(do.call(rbind, rows), "subject_cluster_basis"), c("subject_id", "package"))
 }
 
 # TF-IDF and text vectors for every current package, with the stop words used.
@@ -226,19 +267,80 @@ candidate_groups <- function(cl, packages, settings, keep = list()) {
   })
 }
 
+# Last run's published subjects as groups, with their ids, fields and the primary members still on CRAN.
+# Only a classification changes them.
+steady_groups <- function(subjects, members, packages) {
+  pub <- subjects[subjects$status %in% PUBLISHED, , drop = FALSE]
+  pub <- pub[order(pub$subject_id), , drop = FALSE]
+  open <- members[members$is_primary %in% 1L & is.na(members$left) & members$package %in% packages$name, , drop = FALSE]
+  lapply(seq_len(nrow(pub)), function(r) {
+    p <- pub[r, , drop = FALSE]
+    g <- empty_group(sprintf("s%05d", p$subject_id), sort(open$package[open$subject_id == p$subject_id], method = "radix"),
+                     p$status, p$held_reason)
+    for (f in c("name", "description", "named_by", "named_at", "classification_at")) g[[f]] <- p[[f]]
+    g$steady <- TRUE
+    g$subject_id <- as.integer(p$subject_id)
+    g
+  })
+}
+
+# The clusters without the packages steady subjects hold, so new subjects form only from the rest.
+pool_clusters <- function(cl, taken) cl[!cl$package %in% taken, , drop = FALSE]
+
+# Each group's classification index, NA for none. A steady group takes the one due for its id; the others
+# match by overlap the classifications of held subjects, as before.
+classification_picks <- function(groups, classifications, ps, settings) {
+  pick <- rep(NA_integer_, length(groups))
+  if (!length(groups) || !length(classifications)) return(pick)
+  steady <- vapply(groups, function(g) isTRUE(g$steady), NA)
+  due <- due_classifications(classifications, ps)
+  for (i in which(steady)) pick[i] <- unname(due[as.character(groups[[i]]$subject_id)])
+  held <- which(vapply(classifications, function(v) {
+    as.integer(v[["subject_id"]]) %in% ps$subject_id[ps$status %in% "held"]
+  }, NA))
+  if (any(!steady) && length(held)) {
+    sub <- classifications[held]
+    pick[!steady] <- held[match_classifications(groups[!steady], sub, classification_thresholds(sub, settings))]
+  }
+  pick
+}
+
+# Ids of steady subjects whose due classification left them as they were: a split with no part to keep, or a
+# merge with no target. Each tries again on the next run.
+unapplied <- function(groups, after, classifications, pick) {
+  keys <- vapply(after, `[[`, "", "key")
+  at <- stats::setNames(vapply(after, function(g) as.character(g$classification_at), ""), keys)
+  ids <- integer()
+  for (i in which(!is.na(pick))) {
+    g <- groups[[i]]
+    if (!isTRUE(g$steady) || !g$key %in% keys) next
+    if (!identical(at[[g$key]], as.character(classifications[[pick[i]]][["judged_at"]]))) ids <- c(ids, g$subject_id)
+  }
+  ids
+}
+
+# Steady groups keep their own ids, unless a classification split or merged them away.
+pin_steady <- function(fx, after) {
+  for (g in after) {
+    if (!isTRUE(g$steady) || g$key %in% names(fx$pin) || g$subject_id %in% c(fx$split, fx$gone, fx$pin)) next
+    fx$pin[g$key] <- g$subject_id
+  }
+  fx
+}
+
 # What the classifications did: subjects split, merge sources gone, and merged groups pinned to their target.
-classification_effects <- function(groups, after, classifications, prev_members, settings) {
+classification_effects <- function(groups, after, classifications, prev_members, settings, pick = NULL) {
   fx <- list(split = stats::setNames(integer(), character()), gone = integer(),
-             pin = stats::setNames(integer(), character()),
+             pin = stats::setNames(integer(), character()), into = stats::setNames(integer(), character()),
              named = as.integer(unlist(lapply(classifications, function(v) c(v[["subject_id"]], v[["merge_with"]])))))
   fx$named <- fx$named[!is.na(fx$named)]
   if (!length(groups) || !length(classifications)) return(fx)
-  pick <- match_classifications(groups, classifications, classification_thresholds(classifications, settings))
+  if (is.null(pick)) pick <- match_classifications(groups, classifications, classification_thresholds(classifications, settings))
   keys <- vapply(after, `[[`, "", "key")
   hit <- which(!is.na(pick))
   for (i in hit) {
     v <- classifications[[pick[i]]]
-    if (v[["classification"]] == "split") fx$split[groups[[i]]$key] <- as.integer(v[["subject_id"]])
+    if (v[["classification"]] == "split" && !groups[[i]]$key %in% keys) fx$split[groups[[i]]$key] <- as.integer(v[["subject_id"]])
   }
   merged <- hit[vapply(hit, function(i) {
     classifications[[pick[i]]][["classification"]] == "merge" && !groups[[i]]$key %in% keys
@@ -255,6 +357,7 @@ classification_effects <- function(groups, after, classifications, prev_members,
     }
     id
   }
+  fx$into <- stats::setNames(vapply(dst, final, 1L), as.character(src))
   for (k in seq_along(merged)) {
     v <- classifications[[pick[merged[k]]]]
     into <- final(dst[k])
@@ -297,10 +400,12 @@ assign_ids <- function(after, prev_members, ps, fx, settings) {
   ids
 }
 
-# A group under the entry size stays only while it carries a previous subject, so no new subject starts small.
+# A group under the entry size stays only while it carries a previous subject or is a split's part, so no new
+# subject starts small.
 drop_new_small <- function(groups, ids, prev_members, settings) {
   keep <- vapply(groups, function(g) {
-    length(g$members) >= settings$min_subject_size || as.character(ids[[g$key]]) %in% names(prev_members)
+    length(g$members) >= settings$min_subject_size || as.character(ids[[g$key]]) %in% names(prev_members) ||
+      !is.na(g$redirect_from)
   }, NA)
   list(groups = groups[keep], ids = ids[vapply(groups[keep], `[[`, "", "key")])
 }
@@ -358,6 +463,11 @@ name_groups <- function(groups, ids, ps, basis, phrases, inputs, edges, io, sett
     j <- match(id, ps$subject_id)
     p <- if (is.na(j)) NULL else ps[j, , drop = FALSE]
     was_published[i] <- !is.null(p) && p$status %in% PUBLISHED
+    if (isTRUE(g$steady)) {
+      # A steady subject is never renamed here; a classification applied this run gives it a new basis.
+      if (is.null(p) || !identical(g$classification_at, p$classification_at)) new_basis[[as.character(id)]] <- g$members
+      next
+    }
     if (identical(g$status, "judged") || (identical(g$status, "held") && !is.na(g$name))) {
       new_basis[[as.character(id)]] <- g$members
     } else if (identical(g$status, "held")) {
@@ -491,8 +601,10 @@ retire_rows <- function(ps, gone, groups, gid, prev_members, fx) {
       held <- vapply(groups, function(g) sum(prev_members[[as.character(id)]] %in% g$members), 0L)
       if (any(held > 0L)) to <- gid[order(-held, gid)][1]
     }
+    # A merge source left with no members forwards to its target.
+    if (is.na(to) && as.character(id) %in% names(fx$into)) to <- unname(fx$into[as.character(id)])
     # Only a published heir; otherwise NA, which the site answers with 410.
-    if (!is.na(to) && !groups[[match(to, gid)]]$status %in% PUBLISHED) to <- NA_integer_
+    if (!is.na(to) && (!to %in% gid || !groups[[match(to, gid)]]$status %in% PUBLISHED)) to <- NA_integer_
     rows$redirect_to[r] <- to
   }
   rows$status <- rep("retired", nrow(rows))
@@ -515,6 +627,7 @@ member_rows <- function(groups, gid, inputs, edges, titles, phrases, emb, settin
   rows <- lapply(seq_along(groups), function(i) {
     p <- prim[[i]]
     all <- sort(union(p, sec$package[sec$cluster == i]), method = "radix")
+    if (!length(all)) return(NULL)
     core <- subject_core(all, inputs$deps, settings)
     ph <- phrases[[i]]
     rs <- placement_reasons(all, inputs$deps, titles, if (length(ph)) ph[[1]] else NA_character_,
@@ -564,14 +677,16 @@ daily_pass <- function(prev, inputs, settings, today, tick) {
                      subject_name_basis = typed(prev$subject_name_basis, "subject_name_basis"),
                      subject_task_views = task_view_rows(pm, inputs$views),
                      seen_packages = seen_rows(seen, pk$name, today),
-                     weekly_clusters = typed(prev$weekly_clusters, "weekly_clusters")),
+                     weekly_clusters = typed(prev$weekly_clusters, "weekly_clusters"),
+                     subject_cluster_basis = typed(prev$subject_cluster_basis, "subject_cluster_basis")),
        calls = 0L)
 }
 
-# New packages join the published subject holding enough of their link weight, plus second ones.
-place_new <- function(fresh, inputs, ps, open, settings) {
+# New packages join the published subject holding enough of their link weight, plus second ones. The weekly
+# run passes its own embedding.
+place_new <- function(fresh, inputs, ps, open, settings, emb = NULL) {
   pk <- inputs$packages
-  emb <- embed_packages(inputs, settings)
+  if (is.null(emb)) emb <- embed_packages(inputs, settings)
   dep <- dependency_edges(inputs$deps, pk$name)
   e <- combine_edges(knn_rows(emb$Z, fresh, settings$knn_k, settings$knn_min_sim),
                      dep[dep$from %in% fresh | dep$to %in% fresh, , drop = FALSE])

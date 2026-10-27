@@ -142,13 +142,14 @@ classification_thresholds <- function(classifications, settings) {
   }, 0)
 }
 
-# The raw cluster holding most of a split's members, which the weekly run matches the split against.
-split_cluster <- function(v, clusters) {
+# The packages of the cluster holding most of `packages`, ties to the lower cluster number.
+home_cluster <- function(packages, clusters) {
   if (is.null(clusters) || !nrow(clusters)) return(character())
-  k <- clusters$cluster[clusters$package %in% v[["members"]]]
+  k <- clusters$cluster[clusters$package %in% packages]
   if (!length(k)) return(character())
-  home <- names(which.max(table(k)))
-  sort(clusters$package[as.character(clusters$cluster) == home], method = "radix")
+  n <- table(k)
+  home <- min(as.integer(names(n)[n == max(n)]))
+  sort(clusters$package[clusters$cluster == home], method = "radix")
 }
 
 classification_for <- function(members, classifications, threshold) {
@@ -169,6 +170,22 @@ match_classifications <- function(groups, classifications, threshold) {
     pick[setdiff(rows, best)] <- NA_integer_
   }
   pick
+}
+
+# For each published subject, the index of its latest classification judged after its own classification_at,
+# named by subject id. Such a classification applies once, by id, whatever the clusters did.
+due_classifications <- function(classifications, subjects) {
+  out <- stats::setNames(integer(), character())
+  if (!length(classifications) || is.null(subjects) || !nrow(subjects)) return(out)
+  vid <- vapply(classifications, function(v) as.integer(v[["subject_id"]]), 1L)
+  when <- vapply(classifications, function(v) as.character(v[["judged_at"]]), "")
+  pub <- subjects[subjects$status %in% c("named", "judged"), , drop = FALSE]
+  for (r in seq_len(nrow(pub))) {
+    at <- as.character(pub$classification_at[r])
+    k <- which(vid == pub$subject_id[r] & (is.na(at) | when > at))
+    if (length(k)) out[as.character(pub$subject_id[r])] <- k[order(when[k], k, decreasing = TRUE)][1]
+  }
+  out
 }
 
 # A hold from the automatic checks, which no classification lifts.
@@ -194,7 +211,8 @@ judge_group <- function(g, v, name, description) {
 # start in last week's part of the same name from this classification, so parts hold steady; a part
 # with no placed package here, or a name that does not pick out one subject, gives no start. A part
 # under the entry size stays while it still carries last week's published part.
-split_group <- function(g, v, edges, settings, prev_members = list(), prev_subjects = NULL) {
+split_group <- function(g, v, edges, settings, prev_members = list(), prev_subjects = NULL,
+                        min_size = settings$min_subject_size) {
   members <- g$members
   e <- edges[edges$from %in% members & edges$to %in% members, , drop = FALSE]
   gr <- igraph::graph_from_data_frame(e[, c("from", "to")], directed = FALSE,
@@ -225,7 +243,7 @@ split_group <- function(g, v, edges, settings, prev_members = list(), prev_subje
   parts <- list()
   for (j in seq_along(cg)) {
     pm <- members[which(part == j)]
-    if (length(pm) < settings$min_subject_size &&
+    if (length(pm) < min_size &&
         (is.na(was[j]) || !prev_subjects$status[match(as.integer(was[j]), prev_subjects$subject_id)] %in% PUBLISHED ||
          !keeps_subject(pm, prev_members[[was[j]]], settings))) next
     d <- cg[[j]][["description"]]
@@ -260,10 +278,12 @@ place_strays <- function(groups, from, strays, edges, settings) {
   groups
 }
 
-# Apply each group's classification: strays leave, then splits, holds and keeps, then merges.
-apply_classifications <- function(groups, classifications, edges, prev_members, settings, prev_subjects = NULL) {
+# Apply each group's classification: strays leave, then splits, holds and keeps, then merges. `pick` gives each
+# group's classification index directly, NA for none; without it groups match classifications by overlap.
+apply_classifications <- function(groups, classifications, edges, prev_members, settings, prev_subjects = NULL,
+                                  pick = NULL) {
   if (!length(groups) || !length(classifications)) return(groups)
-  pick <- match_classifications(groups, classifications, classification_thresholds(classifications, settings))
+  if (is.null(pick)) pick <- match_classifications(groups, classifications, classification_thresholds(classifications, settings))
   strays <- data.frame(package = character(), origin = character(), stringsAsFactors = FALSE)
   out <- list()
   from <- list()
@@ -283,7 +303,19 @@ apply_classifications <- function(groups, classifications, edges, prev_members, 
     }
     kind <- v[["classification"]]
     if (kind == "split") {
-      parts <- split_group(g, v, edges, settings, prev_members, prev_subjects)
+      # Parts are new subjects, not the steady one they came from. A published subject's parts stay down to the
+      # keep size, and when none would stay the subject is left as it is.
+      steady <- isTRUE(g$steady)
+      parts <- lapply(split_group(g, v, edges, settings, prev_members, prev_subjects,
+                                  if (steady) settings$min_keep_size else settings$min_subject_size), function(p) {
+        p$steady <- NULL
+        p$subject_id <- NULL
+        p
+      })
+      if (steady && !length(parts)) {
+        strays <- strays[strays$origin != g$key, , drop = FALSE]
+        parts <- groups[i]
+      }
       out <- c(out, parts)
       from <- c(from, rep(list(g$key), length(parts)))
       next
@@ -299,19 +331,30 @@ apply_classifications <- function(groups, classifications, edges, prev_members, 
     if (kind == "merge") merges[[length(merges) + 1L]] <- list(at = length(out), v = v)
   }
   gone <- rep(FALSE, length(out))
+  went <- seq_along(out)
   by_id <- order(vapply(merges, function(m) as.integer(m$v[["subject_id"]]), 1L), method = "radix")
   for (m in merges[by_id]) {
-    target <- prev_members[[as.character(m$v[["merge_with"]])]]
-    cand <- setdiff(which(!gone), m$at)
-    if (is.null(target) || !length(cand)) next
-    sc <- vapply(out[cand], function(g) jaccard(target, g$members), 0)
-    ok <- sc >= settings$match_jaccard - 1e-12 & sc > 0
-    if (!any(ok)) next
-    keys <- vapply(out[cand], function(g) as.character(g$key), "")
-    to <- cand[ok][order(-sc[ok], keys[ok], method = "radix")][1]
+    into <- as.integer(m$v[["merge_with"]])
+    # A steady target is found by its id, following any merge it went through this run.
+    own <- which(vapply(out, function(g) isTRUE(g$steady) && identical(g$subject_id, into), NA))
+    if (length(own)) {
+      to <- own[1]
+      while (gone[to]) to <- went[to]
+      if (to == m$at) next
+    } else {
+      target <- prev_members[[as.character(into)]]
+      cand <- setdiff(which(!gone), m$at)
+      if (is.null(target) || !length(cand)) next
+      sc <- vapply(out[cand], function(g) jaccard(target, g$members), 0)
+      ok <- sc >= settings$match_jaccard - 1e-12 & sc > 0
+      if (!any(ok)) next
+      keys <- vapply(out[cand], function(g) as.character(g$key), "")
+      to <- cand[ok][order(-sc[ok], keys[ok], method = "radix")][1]
+    }
     out[[to]]$members <- union(out[[to]]$members, out[[m$at]]$members)
     from[[to]] <- union(from[[to]], from[[m$at]])
     gone[m$at] <- TRUE
+    went[m$at] <- to
   }
   out <- out[!gone]
   from <- from[!gone]
@@ -320,13 +363,46 @@ apply_classifications <- function(groups, classifications, edges, prev_members, 
     g$members <- sort(unique(g$members), method = "radix")
     g
   })
-  Filter(function(g) length(g$members) > 0L, out)
+  # A steady subject stays even with no members left.
+  Filter(function(g) length(g$members) > 0L || isTRUE(g$steady), out)
 }
 
-# Subjects waiting for a classification: new names, name holds, and classifications their members have drifted from.
-# `basis` is the subject_name_basis table, the baseline for judged split parts. With `clusters` (weekly_clusters),
-# a split whose cluster has drifted but still carries it waits too, as the subject it split.
-waiting_subjects <- function(subjects, members, basis, classifications, settings, clusters = NULL) {
+# The day the monthly classification reminder opens after `today`, the first of the next month.
+next_classification_day <- function(today) {
+  d <- as.POSIXlt(as.Date(today))
+  sprintf("%04d-%02d-01", d$year + 1900L + (d$mon == 11L), (d$mon + 1L) %% 12L + 1L)
+}
+
+# Published subjects that wait for the next classification on their own, named by id: "too small" under
+# min_keep_size primary members, until a classification newer than the last member's leaving applies; and
+# "drifted" for a judged one whose cluster this week overlaps the cluster it was classified in (`cluster_basis`)
+# below drift_jaccard, or holds a share of its members below drift_jaccard times the share it held then.
+published_waiting <- function(subjects, members, cluster_basis, clusters, settings) {
+  out <- stats::setNames(character(), character())
+  prim <- members[!is.na(members$is_primary) & members$is_primary == 1, , drop = FALSE]
+  cur <- prim[is.na(prim$left), , drop = FALSE]
+  at <- if (is.null(subjects$classification_at)) rep(NA_character_, nrow(subjects)) else as.character(subjects$classification_at)
+  dj <- settings$drift_jaccard - 1e-12
+  for (i in which(subjects$status %in% c("named", "judged"))) {
+    id <- subjects$subject_id[i]
+    now <- cur$package[cur$subject_id == id]
+    if (length(now) < settings$min_keep_size) {
+      lost <- prim$left[prim$subject_id == id & !is.na(prim$left)]
+      if (is.na(at[i]) || any(lost > at[i])) out[as.character(id)] <- "too small"
+    } else if (subjects$status[i] %in% "judged" && !is.null(cluster_basis) && !is.null(clusters) && nrow(clusters)) {
+      then <- cluster_basis$package[cluster_basis$subject_id %in% id]
+      home <- home_cluster(now, clusters)
+      if (length(then) && (jaccard(then, home) < dj || mean(now %in% home) < dj * mean(now %in% then))) {
+        out[as.character(id)] <- "drifted"
+      }
+    }
+  }
+  out
+}
+
+# Subjects waiting for a classification: new names, name holds, classification holds whose members have drifted
+# from that classification, and the published subjects of published_waiting().
+waiting_subjects <- function(subjects, members, cluster_basis, classifications, settings, clusters = NULL) {
   empty <- data.frame(subject_id = integer(), slug = character(), name = character(),
                       why = character(), stringsAsFactors = FALSE)
   if (is.null(subjects) || !nrow(subjects)) return(empty)
@@ -336,8 +412,8 @@ waiting_subjects <- function(subjects, members, basis, classifications, settings
   why[st %in% "named"] <- "new name"
   name_hold <- st %in% "held" & !is.na(hr) & startsWith(hr, "name_")
   why[name_hold] <- paste0("held: ", hr[name_hold])
-  check <- which(st %in% "judged" | (st %in% "held" & hr %in% "classification"))
-  if (length(check)) {
+  check <- which(st %in% "held" & hr %in% "classification")
+  if (length(check) && length(classifications)) {
     vid <- vapply(classifications, function(v) as.integer(v[["subject_id"]]), 1L)
     when <- vapply(classifications, function(v) as.character(v[["judged_at"]]), "")
     latest <- order(when, decreasing = TRUE, method = "radix")
@@ -349,30 +425,14 @@ waiting_subjects <- function(subjects, members, basis, classifications, settings
     for (i in check) {
       id <- subjects$subject_id[i]
       k <- latest[vid[latest] == id][1]
-      if (!is.na(k)) {
-        # Its own classification without strays, plus every group merged into it.
-        base <- Reduce(union, lapply(classifications[which(into == id)], settled), settled(classifications[[k]]))
-      } else if (st[i] %in% "judged") {
-        # A split part has no classification of its own, so it drifts from the members it was named from.
-        base <- if (is.null(basis)) character() else basis$package[basis$subject_id %in% id]
-        if (!length(base)) next
-      } else {
-        next
-      }
-      now <- cur$package[cur$subject_id == id]
-      if (jaccard(base, now) < settings$drift_jaccard - 1e-12) why[i] <- "drifted"
+      if (is.na(k)) next
+      # Its own classification without strays, plus every group merged into it.
+      base <- Reduce(union, lapply(classifications[which(into == id)], settled), settled(classifications[[k]]))
+      if (jaccard(base, cur$package[cur$subject_id == id]) < settings$drift_jaccard - 1e-12) why[i] <- "drifted"
     }
   }
-  if (!is.null(clusters) && nrow(clusters)) {
-    for (v in Filter(function(v) identical(v[["classification"]], "split"), classifications)) {
-      i <- match(as.integer(v[["subject_id"]]), subjects$subject_id)
-      if (is.na(i) || !st[i] %in% "retired") next
-      parts <- vapply(v[["groups"]], function(g) as.character(g[["name"]]), "")
-      if (!any(!st %in% "retired" & subjects$classification_at %in% v[["judged_at"]] & subjects$name %in% parts)) next
-      j <- jaccard(split_cluster(v, clusters), v[["members"]])
-      if (j >= settings$match_jaccard - 1e-12 && j < settings$drift_jaccard - 1e-12) why[i] <- "split drifted"
-    }
-  }
+  pw <- published_waiting(subjects, members, cluster_basis, clusters, settings)
+  why[match(names(pw), as.character(subjects$subject_id))] <- unname(pw)
   keep <- !is.na(why)
   out <- data.frame(subject_id = as.integer(subjects$subject_id[keep]), slug = as.character(subjects$slug[keep]),
                     name = as.character(subjects$name[keep]), why = why[keep], stringsAsFactors = FALSE)

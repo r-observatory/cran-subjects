@@ -279,7 +279,7 @@ test_that("a carried name publishes as named, since no classification applies to
   expect_equal(c(carry_name(g, p)$status, carry_name(g, p)$held_reason), c("held", "name_generic"))
 })
 
-test_that("a judged subject whose keep classification has lapsed comes back named and waits", {
+test_that("a judged subject stays judged as its packages leave, and waits once too few remain", {
   r <- cold(); pal <- subject_id_of(r$out, "colour-palettes")
   write_classification(r$vf, subject_id = pal, members = primary_of(r$out, pal), classification = "keep",
                 name = "Colour scales", description = "These packages give colour scales for plots.")
@@ -288,19 +288,35 @@ test_that("a judged subject whose keep classification has lapsed comes back name
     DBI::dbExecute(con, sprintf("UPDATE packages SET is_archived = 1 WHERE name IN ('%s')", paste(names, collapse = "','")))
     DBI::dbDisconnect(con)
   }
-  run <- function(prev) run_update(fake_io(r$db, prev), withr::local_tempdir(.local_envir = parent.frame()), "weekly", r$vf, st)
+  run <- function(prev, day = "2026-11-02") {
+    io <- fake_io(r$db, prev); io$today <- function() day
+    run_update(io, withr::local_tempdir(.local_envir = parent.frame()), "weekly", r$vf, st)
+  }
+  row <- function(db) q(db, sprintf("SELECT * FROM subjects WHERE subject_id = %d", pal))
   out2 <- run(r$out)
-  expect_equal(q(out2, sprintf("SELECT status FROM subjects WHERE subject_id = %d", pal))$status, "judged")
-  # 25 of the classification's 30 members remain, so the classification still applies and the basis becomes those 25.
-  archive(sprintf("pal%02d", 26:30)); out3 <- run(out2)
-  expect_equal(q(out3, sprintf("SELECT status FROM subjects WHERE subject_id = %d", pal))$status, "judged")
-  # 20 remain: 20/30 is below drift_jaccard for the classification, while 20/25 keeps the name.
-  archive(sprintf("pal%02d", 21:25)); out4 <- run(out3)
-  s <- q(out4, sprintf("SELECT * FROM subjects WHERE subject_id = %d", pal))
-  expect_equal(c(s$status, s$name, s$slug), c("named", "Colour scales", "colour-palettes"))
+  expect_equal(row(out2)$status, "judged")
+  archive(sprintf("pal%02d", 21:30)); out3 <- run(out2, "2026-11-09")
+  expect_equal(unlist(row(out3)[c("status", "name", "slug", "size")]),
+               c(status = "judged", name = "Colour scales", slug = "colour-palettes", size = "20"))
+  archive(sprintf("pal%02d", 10:20)); out4 <- run(out3, "2026-11-16")
+  expect_equal(c(row(out4)$status, row(out4)$size), c("judged", "9"))
   w <- waiting_subjects(q(out4, "SELECT * FROM subjects"), q(out4, "SELECT * FROM subject_members"),
-                        q(out4, "SELECT * FROM subject_name_basis"), read_classifications(r$vf), st)
-  expect_true(pal %in% w$subject_id)
+                        q(out4, "SELECT * FROM subject_cluster_basis"), read_classifications(r$vf), st,
+                        q(out4, "SELECT * FROM weekly_clusters"))
+  expect_equal(w$why[w$subject_id == pal], "too small")
+})
+
+test_that("an emptied steady subject stays published with no members", {
+  r <- cold(); pal <- subject_id_of(r$out, "colour-palettes")
+  con <- DBI::dbConnect(RSQLite::SQLite(), r$db)
+  DBI::dbExecute(con, "UPDATE packages SET is_archived = 1 WHERE name LIKE 'pal%'"); DBI::dbDisconnect(con)
+  out2 <- run_update(fake_io(r$db, r$out), withr::local_tempdir(), "weekly", r$vf, st)
+  s <- q(out2, sprintf("SELECT status, slug, size FROM subjects WHERE subject_id = %d", pal))
+  expect_equal(s, data.frame(status = "named", slug = "colour-palettes", size = 0L))
+  expect_equal(nrow(q(out2, sprintf("SELECT * FROM subject_members WHERE subject_id = %d AND \"left\" IS NULL", pal))), 0L)
+  w <- waiting_subjects(q(out2, "SELECT * FROM subjects"), q(out2, "SELECT * FROM subject_members"),
+                        q(out2, "SELECT * FROM subject_cluster_basis"), list(), st, q(out2, "SELECT * FROM weekly_clusters"))
+  expect_equal(w$why[w$subject_id == pal], "too small")
 })
 
 test_that("a missing model logs one line and makes no naming calls", {
@@ -457,4 +473,206 @@ test_that("a daily run carries the weekly clusters unchanged", {
   out2 <- run_update(fake_io(r$db, r$out), withr::local_tempdir(), "daily", r$vf, st)
   expect_equal(q(out2, "SELECT * FROM weekly_clusters"), q(r$out, "SELECT * FROM weekly_clusters"))
   expect_equal(nrow(q(out2, "SELECT * FROM weekly_clusters")), 83L)
+})
+
+test_that("steady groups carry a published subject's members and fields", {
+  r <- cold(); pk <- read_inputs(r$db)$packages; pk <- pk[pk$name != "pal30", ]
+  ps <- q(r$out, "SELECT * FROM subjects ORDER BY subject_id"); pm <- q(r$out, "SELECT * FROM subject_members")
+  g <- steady_groups(typed(ps, "subjects"), typed(pm, "subject_members"), pk)
+  expect_length(g, 2L)
+  expect_equal(vapply(g, `[[`, "", "key"), sprintf("s%05d", ps$subject_id))
+  expect_true(all(vapply(g, function(x) isTRUE(x$steady), NA)))
+  expect_equal(vapply(g, `[[`, 1L, "subject_id"), ps$subject_id)
+  pal <- g[[match(subject_id_of(r$out, "colour-palettes"), ps$subject_id)]]
+  expect_equal(pal$members, sprintf("pal%02d", 1:29))
+  expect_equal(c(pal$name, pal$status), c(ps$name[ps$slug == "colour-palettes"], "named"))
+})
+
+test_that("a held subject is not steady", {
+  r <- cold(); ps <- typed(q(r$out, "SELECT * FROM subjects ORDER BY subject_id"), "subjects")
+  ps$status[1] <- "held"; ps$held_reason[1] <- "classification"
+  g <- steady_groups(ps, typed(q(r$out, "SELECT * FROM subject_members"), "subject_members"), read_inputs(r$db)$packages)
+  expect_length(g, 1L); expect_equal(g[[1]]$subject_id, ps$subject_id[2])
+})
+
+test_that("pool_clusters drops the taken packages", {
+  cl <- data.frame(package = c("a", "b", "c", "d"), cluster = c(1L, 1L, 2L, 2L), stringsAsFactors = FALSE)
+  p <- pool_clusters(cl, c("a", "b"))
+  expect_equal(p$package, c("c", "d")); expect_equal(p$cluster, c(2L, 2L))
+})
+
+# Helpers for the steady-subject tests.
+sql <- function(db, ...) { con <- DBI::dbConnect(RSQLite::SQLite(), db); on.exit(DBI::dbDisconnect(con)); for (s in c(...)) DBI::dbExecute(con, s) }
+add_family <- function(db, prefix, n, title, description) {
+  nn <- sprintf("%s%02d", prefix, seq_len(n))
+  sql(db, sprintf("INSERT INTO packages (name, title, description, maintainer, imports, version, is_archived)
+                   VALUES ('%s', '%s %s', '%s', 'Author %d', %s, '1.0', 0)", nn, title, seq_len(n), description,
+                  (seq_len(n) - 1L) %% 6L + 1L, ifelse(seq_len(n) == 1L, "NULL", sprintf("'%s01'", prefix))))
+}
+add_gis <- function(db, n = 25L) add_family(db, "gis", n, "Map Projections And Cartography", "Draws thematic maps with map projections.")
+three_io <- function(input, previous) {
+  io <- fake_io(input, previous)
+  io$name_cluster <- function(system, user) {
+    nm <- if (grepl("gis[0-9]", user)) "Map Making" else if (grepl("surv", user)) "Survival Analysis" else "Colour Palettes Tools"
+    list(name = nm, description = "These packages share one subject.")
+  }
+  io
+}
+no_double <- function(db) {
+  expect_equal(nrow(q(db, "SELECT package FROM subject_members WHERE is_primary = 1 AND \"left\" IS NULL
+                          GROUP BY package HAVING COUNT(*) > 1")), 0L)
+}
+weekly <- function(io, prev_settings = st, vf) run_update(io, withr::local_tempdir(.local_envir = parent.frame()), "weekly", vf, prev_settings)
+
+test_that("a steady subject keeps its id, slug, name and status when its cluster merges with another", {
+  r <- cold(); before <- q(r$out, "SELECT subject_id, slug, name, status FROM subjects ORDER BY subject_id")
+  sql(r$db, "UPDATE packages SET imports = 'pal01, surv01' WHERE name LIKE 'pal%' AND name <> 'pal01'",
+      "UPDATE packages SET imports = 'surv01' WHERE name = 'pal01'")
+  out2 <- weekly(fake_io(r$db, r$out), modifyList(st, list(resolution = 0.001)), r$vf)
+  wc <- q(out2, "SELECT package, cluster FROM weekly_clusters")
+  expect_equal(wc$cluster[wc$package == "pal05"], wc$cluster[wc$package == "surv05"])
+  expect_equal(q(out2, "SELECT subject_id, slug, name, status FROM subjects ORDER BY subject_id"), before)
+  expect_equal(q(out2, "SELECT size FROM subjects ORDER BY subject_id")$size, c(30L, 30L))
+  no_double(out2)
+})
+
+test_that("a new package joins a steady subject by the placement rule, and one below it stays out", {
+  r <- cold()
+  sql(r$db, "INSERT INTO packages (name, title, description, maintainer, imports, version, is_archived)
+             VALUES ('pal31', 'Colour Palettes Inspired By 31', 'Provides a palette of colour scales with a chosen hue.', 'Pal Author 1', 'pal01', '1.0', 0)",
+      "INSERT INTO packages (name, title, description, maintainer, imports, version, is_archived)
+             VALUES ('mixer', 'Mixer Of Things', 'Mixer of things.', 'Mix Author', 'surv01, dplyr, ggplot2, tidyr, glue', '1.0', 0)")
+  out2 <- weekly(fake_io(r$db, r$out), st, r$vf)
+  expect_equal(q(out2, "SELECT s.slug FROM subject_members m JOIN subjects s USING (subject_id)
+                        WHERE m.package = 'pal31' AND m.is_primary = 1")$slug, "colour-palettes")
+  expect_equal(nrow(q(out2, "SELECT * FROM subject_members WHERE package = 'mixer' AND is_primary = 1")), 0L)
+  no_double(out2)
+})
+
+test_that("a package that left CRAN leaves a steady subject", {
+  r <- cold(); sql(r$db, "UPDATE packages SET is_archived = 1 WHERE name = 'pal30'")
+  out2 <- weekly(fake_io(r$db, r$out), st, r$vf)
+  expect_equal(q(out2, "SELECT \"left\" FROM subject_members WHERE package = 'pal30'")$left, "2026-10-26")
+  expect_equal(q(out2, "SELECT status, size FROM subjects WHERE slug = 'colour-palettes'"),
+               data.frame(status = "named", size = 29L))
+})
+
+test_that("a due keep classification applies by id once even when its cluster has drifted", {
+  r <- cold(); pal <- subject_id_of(r$out, "colour-palettes")
+  write_classification(r$vf, subject_id = pal, members = sprintf("pal%02d", 1:10), classification = "keep",
+                       name = "Colour scales", description = "These packages give colour scales for plots.")
+  out2 <- weekly(fake_io(r$db, r$out), st, r$vf)
+  s2 <- q(out2, sprintf("SELECT * FROM subjects WHERE subject_id = %d", pal))
+  expect_equal(c(s2$status, s2$name, s2$slug, s2$classification_at), c("judged", "Colour scales", "colour-palettes", "2026-11-01"))
+  expect_equal(s2$size, 30L)
+  out3 <- weekly(fake_io(r$db, out2), st, r$vf)
+  expect_equal(q(out3, "SELECT * FROM subjects ORDER BY subject_id"), q(out2, "SELECT * FROM subjects ORDER BY subject_id"))
+  expect_equal(q(out3, "SELECT * FROM subject_name_basis"), q(out2, "SELECT * FROM subject_name_basis"))
+})
+
+test_that("new subjects form only from packages in no published subject", {
+  r <- cold(); add_gis(r$db)
+  out2 <- weekly(three_io(r$db, r$out), st, r$vf)
+  s <- q(out2, "SELECT subject_id, slug, status FROM subjects ORDER BY subject_id")
+  expect_equal(nrow(s), 3L)
+  new <- s$subject_id[!s$subject_id %in% q(r$out, "SELECT subject_id FROM subjects")$subject_id]
+  expect_equal(primary_of(out2, new), sprintf("gis%02d", 1:25))
+  expect_equal(s$status[s$subject_id == new], "named")
+  no_double(out2)
+})
+
+test_that("chained due merges retire both sources to the last target", {
+  db <- withr::local_tempfile(fileext = ".db"); make_fixture_store(db); add_gis(db, 40L)
+  vf <- withr::local_tempfile(fileext = ".json"); writeLines("[]", vf)
+  out <- weekly(three_io(db, NULL), st, vf)
+  gis <- subject_id_of(out, "map-making")
+  two <- sort(c(subject_id_of(out, "colour-palettes"), subject_id_of(out, "survival-analysis")))
+  # The middle of the chain has the lower id, so its merge runs first and the union no longer overlaps it by half.
+  jsonlite::write_json(list(classification(subject_id = two[2], members = primary_of(out, two[2]), classification = "merge", merge_with = two[1]),
+                            classification(subject_id = two[1], members = primary_of(out, two[1]), classification = "merge", merge_with = gis)),
+                       vf, auto_unbox = TRUE)
+  out2 <- weekly(three_io(db, out), st, vf)
+  s <- q(out2, "SELECT subject_id, status, redirect_to, size FROM subjects ORDER BY subject_id")
+  expect_equal(s$status[s$subject_id %in% two], c("retired", "retired"))
+  expect_equal(s$redirect_to[s$subject_id %in% two], c(gis, gis))
+  expect_equal(s$size[s$subject_id == gis], 100L)
+  no_double(out2)
+})
+
+test_that("a subject held by a classification stays held on later runs, as a held subject regrouped weekly", {
+  r <- cold(); pal <- subject_id_of(r$out, "colour-palettes")
+  write_classification(r$vf, subject_id = pal, members = primary_of(r$out, pal), classification = "hold")
+  out2 <- weekly(fake_io(r$db, r$out), st, r$vf); out3 <- weekly(fake_io(r$db, out2), st, r$vf)
+  s <- q(out3, sprintf("SELECT status, held_reason, slug, size FROM subjects WHERE subject_id = %d", pal))
+  expect_equal(s, data.frame(status = "held", held_reason = "classification", slug = "colour-palettes", size = 30L))
+  no_double(out3)
+})
+
+test_that("a weekly run records each new subject's cluster, and a daily run carries it", {
+  r <- cold(); wc <- q(r$out, "SELECT * FROM weekly_clusters")
+  for (id in q(r$out, "SELECT subject_id FROM subjects")$subject_id) {
+    expect_equal(q(r$out, sprintf("SELECT package FROM subject_cluster_basis WHERE subject_id = %d ORDER BY package", id))$package,
+                 home_cluster(primary_of(r$out, id), wc))
+  }
+  out2 <- run_update(fake_io(r$db, r$out), withr::local_tempdir(), "daily", r$vf, st)
+  expect_equal(q(out2, "SELECT * FROM subject_cluster_basis"), q(r$out, "SELECT * FROM subject_cluster_basis"))
+})
+
+test_that("a judged subject whose cluster merges with another waits as drifted, and the run log counts it", {
+  r <- cold(); pal <- subject_id_of(r$out, "colour-palettes")
+  write_classification(r$vf, subject_id = pal, members = primary_of(r$out, pal), classification = "keep",
+                       name = "Colour scales", description = "These packages give colour scales for plots.")
+  out2 <- weekly(fake_io(r$db, r$out), st, r$vf)
+  basis <- function(db) q(db, sprintf("SELECT package FROM subject_cluster_basis WHERE subject_id = %d ORDER BY package", pal))$package
+  expect_equal(basis(out2), sprintf("pal%02d", 1:30))
+  sql(r$db, "UPDATE packages SET imports = 'pal01, surv01' WHERE name LIKE 'pal%' AND name <> 'pal01'",
+      "UPDATE packages SET imports = 'surv01' WHERE name = 'pal01'")
+  io <- fake_io(r$db, out2); io$log <- function(msg) message(msg)
+  expect_message(out3 <- weekly(io, modifyList(st, list(resolution = 0.001)), r$vf),
+                 "published subjects waiting for the classification on 2026-11-01: 1 drifted from the clustering, 0 too small",
+                 fixed = TRUE)
+  expect_equal(basis(out3), basis(out2))
+  w <- waiting_subjects(q(out3, "SELECT * FROM subjects"), q(out3, "SELECT * FROM subject_members"),
+                        q(out3, "SELECT * FROM subject_cluster_basis"), read_classifications(r$vf), st,
+                        q(out3, "SELECT * FROM weekly_clusters"))
+  expect_equal(w$why[w$subject_id == pal], "drifted")
+  expect_equal(w$why[w$subject_id == subject_id_of(r$out, "survival-analysis")], "new name")
+})
+
+test_that("packages a classification moved out of a published subject do not form a new subject", {
+  r <- cold(); pal <- subject_id_of(r$out, "colour-palettes")
+  write_classification(r$vf, subject_id = pal, members = primary_of(r$out, pal), classification = "keep",
+                       name = "Colour scales", description = "These packages give colour scales for plots.",
+                       strays = sprintf("pal%02d", 11:30))
+  out2 <- weekly(fake_io(r$db, r$out), st, r$vf); out3 <- weekly(fake_io(r$db, out2), st, r$vf)
+  open <- q(out3, sprintf("SELECT package FROM subject_members WHERE subject_id = %d AND is_primary = 1 AND \"left\" IS NULL", pal))
+  expect_equal(sort(open$package), sprintf("pal%02d", 1:10))
+  expect_equal(nrow(q(out3, "SELECT * FROM subjects")), 2L)
+  expect_equal(nrow(q(out3, "SELECT * FROM subject_members WHERE package = 'pal20' AND is_primary = 1 AND \"left\" IS NULL")), 0L)
+})
+
+test_that("a due split of a published subject keeps parts down to the keep size", {
+  r <- cold(); surv <- subject_id_of(r$out, "survival-analysis"); m <- primary_of(r$out, surv)
+  write_classification(r$vf, subject_id = surv, members = m, classification = "split",
+                       groups = list(list(name = "Survival models", packages = m[1:15], description = "These packages fit survival models."),
+                                     list(name = "Hazard curves", packages = m[16:30])))
+  out2 <- weekly(named_io(r$db, r$out), st, r$vf)
+  s <- q(out2, "SELECT * FROM subjects")
+  parts <- s[s$slug %in% c("survival-models", "hazard-curves"), ]
+  expect_equal(parts$status, c("judged", "judged")); expect_equal(parts$size, c(15L, 15L))
+  expect_equal(s$status[s$subject_id == surv], "retired")
+  expect_equal(s$redirect_to[s$subject_id == surv], min(parts$subject_id))
+  no_double(out2)
+})
+
+test_that("a due split that would leave no part keeps the subject as it is, and the run log says so", {
+  r <- cold(); surv <- subject_id_of(r$out, "survival-analysis")
+  sql(r$db, "UPDATE packages SET is_archived = 1 WHERE name LIKE 'surv%' AND name > 'surv12'")
+  out2 <- weekly(fake_io(r$db, r$out), st, r$vf); m <- sprintf("surv%02d", 1:12)
+  write_classification(r$vf, subject_id = surv, members = m, classification = "split",
+                       groups = list(list(name = "Survival models", packages = m[1:6]), list(name = "Hazard curves", packages = m[7:12])))
+  io <- fake_io(r$db, out2); io$log <- function(msg) message(msg)
+  expect_message(out3 <- weekly(io, st, r$vf), sprintf("1 due classification could not apply, for subject %d", surv), fixed = TRUE)
+  expect_equal(q(out3, "SELECT subject_id, slug, status, size FROM subjects ORDER BY subject_id"),
+               q(out2, "SELECT subject_id, slug, status, size FROM subjects ORDER BY subject_id"))
 })
