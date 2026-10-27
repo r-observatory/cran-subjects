@@ -211,7 +211,8 @@ judge_group <- function(g, v, name, description) {
 # start in last week's part of the same name from this classification, so parts hold steady; a part
 # with no placed package here, or a name that does not pick out one subject, gives no start. A part
 # under the entry size stays while it still carries last week's published part.
-split_group <- function(g, v, edges, settings, prev_members = list(), prev_subjects = NULL) {
+split_group <- function(g, v, edges, settings, prev_members = list(), prev_subjects = NULL,
+                        min_size = settings$min_subject_size) {
   members <- g$members
   e <- edges[edges$from %in% members & edges$to %in% members, , drop = FALSE]
   gr <- igraph::graph_from_data_frame(e[, c("from", "to")], directed = FALSE,
@@ -242,7 +243,7 @@ split_group <- function(g, v, edges, settings, prev_members = list(), prev_subje
   parts <- list()
   for (j in seq_along(cg)) {
     pm <- members[which(part == j)]
-    if (length(pm) < settings$min_subject_size &&
+    if (length(pm) < min_size &&
         (is.na(was[j]) || !prev_subjects$status[match(as.integer(was[j]), prev_subjects$subject_id)] %in% PUBLISHED ||
          !keeps_subject(pm, prev_members[[was[j]]], settings))) next
     d <- cg[[j]][["description"]]
@@ -302,12 +303,19 @@ apply_classifications <- function(groups, classifications, edges, prev_members, 
     }
     kind <- v[["classification"]]
     if (kind == "split") {
-      # Parts are new subjects, not the steady one they came from.
-      parts <- lapply(split_group(g, v, edges, settings, prev_members, prev_subjects), function(p) {
+      # Parts are new subjects, not the steady one they came from. A published subject's parts stay down to the
+      # keep size, and when none would stay the subject is left as it is.
+      steady <- isTRUE(g$steady)
+      parts <- lapply(split_group(g, v, edges, settings, prev_members, prev_subjects,
+                                  if (steady) settings$min_keep_size else settings$min_subject_size), function(p) {
         p$steady <- NULL
         p$subject_id <- NULL
         p
       })
+      if (steady && !length(parts)) {
+        strays <- strays[strays$origin != g$key, , drop = FALSE]
+        parts <- groups[i]
+      }
       out <- c(out, parts)
       from <- c(from, rep(list(g$key), length(parts)))
       next
@@ -366,19 +374,25 @@ next_classification_day <- function(today) {
 }
 
 # Published subjects that wait for the next classification on their own, named by id: "too small" under
-# min_keep_size primary members, and "drifted" for a judged one whose cluster this week overlaps the cluster it
-# was classified in (`cluster_basis`) below drift_jaccard.
+# min_keep_size primary members, until a classification newer than the last member's leaving applies; and
+# "drifted" for a judged one whose cluster this week overlaps the cluster it was classified in (`cluster_basis`)
+# below drift_jaccard, or holds a share of its members below drift_jaccard times the share it held then.
 published_waiting <- function(subjects, members, cluster_basis, clusters, settings) {
   out <- stats::setNames(character(), character())
-  cur <- members[!is.na(members$is_primary) & members$is_primary == 1 & is.na(members$left), , drop = FALSE]
+  prim <- members[!is.na(members$is_primary) & members$is_primary == 1, , drop = FALSE]
+  cur <- prim[is.na(prim$left), , drop = FALSE]
+  at <- if (is.null(subjects$classification_at)) rep(NA_character_, nrow(subjects)) else as.character(subjects$classification_at)
+  dj <- settings$drift_jaccard - 1e-12
   for (i in which(subjects$status %in% c("named", "judged"))) {
     id <- subjects$subject_id[i]
     now <- cur$package[cur$subject_id == id]
     if (length(now) < settings$min_keep_size) {
-      out[as.character(id)] <- "too small"
+      lost <- prim$left[prim$subject_id == id & !is.na(prim$left)]
+      if (is.na(at[i]) || any(lost > at[i])) out[as.character(id)] <- "too small"
     } else if (subjects$status[i] %in% "judged" && !is.null(cluster_basis) && !is.null(clusters) && nrow(clusters)) {
       then <- cluster_basis$package[cluster_basis$subject_id %in% id]
-      if (length(then) && jaccard(then, home_cluster(now, clusters)) < settings$drift_jaccard - 1e-12) {
+      home <- home_cluster(now, clusters)
+      if (length(then) && (jaccard(then, home) < dj || mean(now %in% home) < dj * mean(now %in% then))) {
         out[as.character(id)] <- "drifted"
       }
     }

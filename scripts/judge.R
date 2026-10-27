@@ -103,6 +103,11 @@ judge_prepare <- function(state_path, inputs_path, out_dir, classifications_path
   for (r in seq_len(nrow(todo))) {
     id <- todo$subject_id[r]
     m <- sort(open$package[open$subject_id == id], method = "radix")
+    # An emptied subject is shown with the members it had last, so it can still be classified.
+    if (!length(m)) {
+      last <- members[members$subject_id == id & members$is_primary %in% 1L & !is.na(members$left), , drop = FALSE]
+      m <- sort(last$package[last$left %in% max(c("", last$left))], method = "radix")
+    }
     if (!length(m)) next
     edges <- dependency_edges(inputs$deps, m)
     nm <- subjects$name[match(id, subjects$subject_id)]

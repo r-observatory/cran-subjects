@@ -288,14 +288,17 @@ test_that("a judged subject stays judged as its packages leave, and waits once t
     DBI::dbExecute(con, sprintf("UPDATE packages SET is_archived = 1 WHERE name IN ('%s')", paste(names, collapse = "','")))
     DBI::dbDisconnect(con)
   }
-  run <- function(prev) run_update(fake_io(r$db, prev), withr::local_tempdir(.local_envir = parent.frame()), "weekly", r$vf, st)
+  run <- function(prev, day = "2026-11-02") {
+    io <- fake_io(r$db, prev); io$today <- function() day
+    run_update(io, withr::local_tempdir(.local_envir = parent.frame()), "weekly", r$vf, st)
+  }
   row <- function(db) q(db, sprintf("SELECT * FROM subjects WHERE subject_id = %d", pal))
   out2 <- run(r$out)
   expect_equal(row(out2)$status, "judged")
-  archive(sprintf("pal%02d", 21:30)); out3 <- run(out2)
+  archive(sprintf("pal%02d", 21:30)); out3 <- run(out2, "2026-11-09")
   expect_equal(unlist(row(out3)[c("status", "name", "slug", "size")]),
                c(status = "judged", name = "Colour scales", slug = "colour-palettes", size = "20"))
-  archive(sprintf("pal%02d", 10:20)); out4 <- run(out3)
+  archive(sprintf("pal%02d", 10:20)); out4 <- run(out3, "2026-11-16")
   expect_equal(c(row(out4)$status, row(out4)$size), c("judged", "9"))
   w <- waiting_subjects(q(out4, "SELECT * FROM subjects"), q(out4, "SELECT * FROM subject_members"),
                         q(out4, "SELECT * FROM subject_cluster_basis"), read_classifications(r$vf), st,
@@ -646,4 +649,30 @@ test_that("packages a classification moved out of a published subject do not for
   expect_equal(sort(open$package), sprintf("pal%02d", 1:10))
   expect_equal(nrow(q(out3, "SELECT * FROM subjects")), 2L)
   expect_equal(nrow(q(out3, "SELECT * FROM subject_members WHERE package = 'pal20' AND is_primary = 1 AND \"left\" IS NULL")), 0L)
+})
+
+test_that("a due split of a published subject keeps parts down to the keep size", {
+  r <- cold(); surv <- subject_id_of(r$out, "survival-analysis"); m <- primary_of(r$out, surv)
+  write_classification(r$vf, subject_id = surv, members = m, classification = "split",
+                       groups = list(list(name = "Survival models", packages = m[1:15], description = "These packages fit survival models."),
+                                     list(name = "Hazard curves", packages = m[16:30])))
+  out2 <- weekly(named_io(r$db, r$out), st, r$vf)
+  s <- q(out2, "SELECT * FROM subjects")
+  parts <- s[s$slug %in% c("survival-models", "hazard-curves"), ]
+  expect_equal(parts$status, c("judged", "judged")); expect_equal(parts$size, c(15L, 15L))
+  expect_equal(s$status[s$subject_id == surv], "retired")
+  expect_equal(s$redirect_to[s$subject_id == surv], min(parts$subject_id))
+  no_double(out2)
+})
+
+test_that("a due split that would leave no part keeps the subject as it is, and the run log says so", {
+  r <- cold(); surv <- subject_id_of(r$out, "survival-analysis")
+  sql(r$db, "UPDATE packages SET is_archived = 1 WHERE name LIKE 'surv%' AND name > 'surv12'")
+  out2 <- weekly(fake_io(r$db, r$out), st, r$vf); m <- sprintf("surv%02d", 1:12)
+  write_classification(r$vf, subject_id = surv, members = m, classification = "split",
+                       groups = list(list(name = "Survival models", packages = m[1:6]), list(name = "Hazard curves", packages = m[7:12])))
+  io <- fake_io(r$db, out2); io$log <- function(msg) message(msg)
+  expect_message(out3 <- weekly(io, st, r$vf), sprintf("1 due classification could not apply, for subject %d", surv), fixed = TRUE)
+  expect_equal(q(out3, "SELECT subject_id, slug, status, size FROM subjects ORDER BY subject_id"),
+               q(out2, "SELECT subject_id, slug, status, size FROM subjects ORDER BY subject_id"))
 })

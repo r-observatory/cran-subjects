@@ -395,3 +395,28 @@ test_that("apply_classifications uses a given pick", {
   fx <- classification_effects(gs, out, cs, list(`3` = u), s, pick = c(1L, NA))
   expect_equal(fx$pin, c(k1 = 3L))
 })
+test_that("a judged subject whose members scatter out of a cluster that barely changed is drifted", {
+  sm <- sprintf("m%02d", 1:14); big <- c(sm, u, sprintf("x%02d", 1:21))
+  subj <- data.frame(subject_id = 9L, slug = "choice", name = "Choice", status = "judged", held_reason = NA,
+                     stringsAsFactors = FALSE)
+  m <- data.frame(subject_id = 9L, package = sm, is_primary = 1L, left = NA)
+  cb <- data.frame(subject_id = 9L, package = big)
+  # Eight members stay in the cluster, so it still overlaps the old one by 54 of 60, while six scatter.
+  cl <- data.frame(package = c(big, "y1", "y2"), cluster = c(rep(1L, 60), 2L, 3L))
+  cl$cluster[cl$package %in% sm[9:11]] <- 2L; cl$cluster[cl$package %in% sm[12:14]] <- 3L
+  w <- waiting_subjects(subj, m, cb, list(), s, cl)
+  expect_equal(w$why, "drifted")
+  cl$cluster[cl$package %in% sm] <- 1L
+  expect_equal(nrow(waiting_subjects(subj, m, cb, list(), s, cl)), 0L)
+})
+test_that("a small subject leaves the queue once a classification newer than its last loss applies", {
+  p <- sprintf("p%02d", 1:12)
+  subj <- data.frame(subject_id = 2L, slug = "b", name = "B", status = "judged", held_reason = NA,
+                     classification_at = "2026-11-01", stringsAsFactors = FALSE)
+  m <- data.frame(subject_id = 2L, package = p, is_primary = 1L, left = c(rep(NA, 9), rep("2026-10-26", 3)))
+  expect_equal(nrow(waiting_subjects(subj, m, no_basis, list(), s)), 0L)
+  m$left[12] <- "2026-11-09"
+  expect_equal(waiting_subjects(subj, m, no_basis, list(), s)$why, "too small")
+  subj$classification_at <- NA
+  expect_equal(waiting_subjects(subj, m, no_basis, list(), s)$why, "too small")
+})

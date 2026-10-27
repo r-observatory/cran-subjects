@@ -166,6 +166,11 @@ weekly_pass <- function(prev, inputs, classifications, io, settings, today, tick
   pick <- classification_picks(groups, classifications, ps, settings)
   after <- apply_classifications(groups, classifications, edges, prev_members, settings, ps, pick)
   fx <- pin_steady(classification_effects(groups, after, classifications, prev_members, settings, pick), after)
+  stuck <- unapplied(groups, after, classifications, pick)
+  if (length(stuck) && is.function(io$log)) {
+    io$log(sprintf("%d due classification%s could not apply, for subject %s", length(stuck),
+                   if (length(stuck) == 1L) "" else "s", paste(stuck, collapse = ", ")))
+  }
   ids <- assign_ids(after, prev_members, ps, fx, settings)
   kept <- drop_new_small(after, ids, prev_members, settings)
   after <- kept$groups
@@ -300,6 +305,20 @@ classification_picks <- function(groups, classifications, ps, settings) {
   pick
 }
 
+# Ids of steady subjects whose due classification left them as they were: a split with no part to keep, or a
+# merge with no target. Each tries again on the next run.
+unapplied <- function(groups, after, classifications, pick) {
+  keys <- vapply(after, `[[`, "", "key")
+  at <- stats::setNames(vapply(after, function(g) as.character(g$classification_at), ""), keys)
+  ids <- integer()
+  for (i in which(!is.na(pick))) {
+    g <- groups[[i]]
+    if (!isTRUE(g$steady) || !g$key %in% keys) next
+    if (!identical(at[[g$key]], as.character(classifications[[pick[i]]][["judged_at"]]))) ids <- c(ids, g$subject_id)
+  }
+  ids
+}
+
 # Steady groups keep their own ids, unless a classification split or merged them away.
 pin_steady <- function(fx, after) {
   for (g in after) {
@@ -312,7 +331,7 @@ pin_steady <- function(fx, after) {
 # What the classifications did: subjects split, merge sources gone, and merged groups pinned to their target.
 classification_effects <- function(groups, after, classifications, prev_members, settings, pick = NULL) {
   fx <- list(split = stats::setNames(integer(), character()), gone = integer(),
-             pin = stats::setNames(integer(), character()),
+             pin = stats::setNames(integer(), character()), into = stats::setNames(integer(), character()),
              named = as.integer(unlist(lapply(classifications, function(v) c(v[["subject_id"]], v[["merge_with"]])))))
   fx$named <- fx$named[!is.na(fx$named)]
   if (!length(groups) || !length(classifications)) return(fx)
@@ -321,7 +340,7 @@ classification_effects <- function(groups, after, classifications, prev_members,
   hit <- which(!is.na(pick))
   for (i in hit) {
     v <- classifications[[pick[i]]]
-    if (v[["classification"]] == "split") fx$split[groups[[i]]$key] <- as.integer(v[["subject_id"]])
+    if (v[["classification"]] == "split" && !groups[[i]]$key %in% keys) fx$split[groups[[i]]$key] <- as.integer(v[["subject_id"]])
   }
   merged <- hit[vapply(hit, function(i) {
     classifications[[pick[i]]][["classification"]] == "merge" && !groups[[i]]$key %in% keys
@@ -338,6 +357,7 @@ classification_effects <- function(groups, after, classifications, prev_members,
     }
     id
   }
+  fx$into <- stats::setNames(vapply(dst, final, 1L), as.character(src))
   for (k in seq_along(merged)) {
     v <- classifications[[pick[merged[k]]]]
     into <- final(dst[k])
@@ -380,10 +400,12 @@ assign_ids <- function(after, prev_members, ps, fx, settings) {
   ids
 }
 
-# A group under the entry size stays only while it carries a previous subject, so no new subject starts small.
+# A group under the entry size stays only while it carries a previous subject or is a split's part, so no new
+# subject starts small.
 drop_new_small <- function(groups, ids, prev_members, settings) {
   keep <- vapply(groups, function(g) {
-    length(g$members) >= settings$min_subject_size || as.character(ids[[g$key]]) %in% names(prev_members)
+    length(g$members) >= settings$min_subject_size || as.character(ids[[g$key]]) %in% names(prev_members) ||
+      !is.na(g$redirect_from)
   }, NA)
   list(groups = groups[keep], ids = ids[vapply(groups[keep], `[[`, "", "key")])
 }
@@ -579,8 +601,10 @@ retire_rows <- function(ps, gone, groups, gid, prev_members, fx) {
       held <- vapply(groups, function(g) sum(prev_members[[as.character(id)]] %in% g$members), 0L)
       if (any(held > 0L)) to <- gid[order(-held, gid)][1]
     }
+    # A merge source left with no members forwards to its target.
+    if (is.na(to) && as.character(id) %in% names(fx$into)) to <- unname(fx$into[as.character(id)])
     # Only a published heir; otherwise NA, which the site answers with 410.
-    if (!is.na(to) && !groups[[match(to, gid)]]$status %in% PUBLISHED) to <- NA_integer_
+    if (!is.na(to) && (!to %in% gid || !groups[[match(to, gid)]]$status %in% PUBLISHED)) to <- NA_integer_
     rows$redirect_to[r] <- to
   }
   rows$status <- rep("retired", nrow(rows))

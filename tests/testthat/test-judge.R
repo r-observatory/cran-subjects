@@ -256,3 +256,25 @@ test_that("prepare queues a judged subject whose cluster moved, with its own mem
   expect_equal(as.integer(queue[[1]]$subject_id), ids[1])
   expect_equal(unlist(queue[[1]]$members), sort(own, method = "radix"))
 })
+
+test_that("an emptied subject is queued with its last members, and a merge forwards it to the target", {
+  z <- cold()
+  rd <- function(db, sql) { con <- DBI::dbConnect(RSQLite::SQLite(), db); on.exit(DBI::dbDisconnect(con)); DBI::dbGetQuery(con, sql) }
+  ids <- rd(z$out, "SELECT subject_id, slug FROM subjects")
+  pal <- ids$subject_id[ids$slug == "colour-palettes"]; surv <- ids$subject_id[ids$slug == "survival-analysis"]
+  con <- DBI::dbConnect(RSQLite::SQLite(), z$db)
+  DBI::dbExecute(con, "UPDATE packages SET is_archived = 1 WHERE name LIKE 'pal%'"); DBI::dbDisconnect(con)
+  vf <- withr::local_tempfile(fileext = ".json"); writeLines("[]", vf)
+  out2 <- run_update(fake_io(z$db, z$out), withr::local_tempdir(), "weekly", vf, st)
+  jd <- withr::local_tempdir()
+  judge_prepare(out2, z$db, jd, vf, settings = st)
+  e <- Filter(function(x) as.integer(x$subject_id) == pal, read_lines_json(file.path(jd, "judge-queue.jsonl")))
+  expect_length(e, 1L)
+  expect_equal(unlist(e[[1]]$members), sprintf("pal%02d", 1:30))
+  write_lines_json(list(list(subject_id = pal, classification = "merge", merge_with = surv)), file.path(jd, "judge-answers.jsonl"))
+  expect_equal(judge_merge(jd, vf, "llm", "2026-11-01")$invalid, 0L)
+  io <- fake_io(z$db, out2); io$today <- function() "2026-11-02"
+  out3 <- run_update(io, withr::local_tempdir(), "weekly", vf, st)
+  s <- rd(out3, sprintf("SELECT status, redirect_to FROM subjects WHERE subject_id = %d", pal))
+  expect_equal(s, data.frame(status = "retired", redirect_to = surv))
+})
