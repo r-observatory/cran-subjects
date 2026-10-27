@@ -301,7 +301,12 @@ apply_classifications <- function(groups, classifications, edges, prev_members, 
     }
     kind <- v[["classification"]]
     if (kind == "split") {
-      parts <- split_group(g, v, edges, settings, prev_members, prev_subjects)
+      # Parts are new subjects, not the steady one they came from.
+      parts <- lapply(split_group(g, v, edges, settings, prev_members, prev_subjects), function(p) {
+        p$steady <- NULL
+        p$subject_id <- NULL
+        p
+      })
       out <- c(out, parts)
       from <- c(from, rep(list(g$key), length(parts)))
       next
@@ -317,19 +322,30 @@ apply_classifications <- function(groups, classifications, edges, prev_members, 
     if (kind == "merge") merges[[length(merges) + 1L]] <- list(at = length(out), v = v)
   }
   gone <- rep(FALSE, length(out))
+  went <- seq_along(out)
   by_id <- order(vapply(merges, function(m) as.integer(m$v[["subject_id"]]), 1L), method = "radix")
   for (m in merges[by_id]) {
-    target <- prev_members[[as.character(m$v[["merge_with"]])]]
-    cand <- setdiff(which(!gone), m$at)
-    if (is.null(target) || !length(cand)) next
-    sc <- vapply(out[cand], function(g) jaccard(target, g$members), 0)
-    ok <- sc >= settings$match_jaccard - 1e-12 & sc > 0
-    if (!any(ok)) next
-    keys <- vapply(out[cand], function(g) as.character(g$key), "")
-    to <- cand[ok][order(-sc[ok], keys[ok], method = "radix")][1]
+    into <- as.integer(m$v[["merge_with"]])
+    # A steady target is found by its id, following any merge it went through this run.
+    own <- which(vapply(out, function(g) isTRUE(g$steady) && identical(g$subject_id, into), NA))
+    if (length(own)) {
+      to <- own[1]
+      while (gone[to]) to <- went[to]
+      if (to == m$at) next
+    } else {
+      target <- prev_members[[as.character(into)]]
+      cand <- setdiff(which(!gone), m$at)
+      if (is.null(target) || !length(cand)) next
+      sc <- vapply(out[cand], function(g) jaccard(target, g$members), 0)
+      ok <- sc >= settings$match_jaccard - 1e-12 & sc > 0
+      if (!any(ok)) next
+      keys <- vapply(out[cand], function(g) as.character(g$key), "")
+      to <- cand[ok][order(-sc[ok], keys[ok], method = "radix")][1]
+    }
     out[[to]]$members <- union(out[[to]]$members, out[[m$at]]$members)
     from[[to]] <- union(from[[to]], from[[m$at]])
     gone[m$at] <- TRUE
+    went[m$at] <- to
   }
   out <- out[!gone]
   from <- from[!gone]
@@ -338,7 +354,8 @@ apply_classifications <- function(groups, classifications, edges, prev_members, 
     g$members <- sort(unique(g$members), method = "radix")
     g
   })
-  Filter(function(g) length(g$members) > 0L, out)
+  # A steady subject stays even with no members left.
+  Filter(function(g) length(g$members) > 0L || isTRUE(g$steady), out)
 }
 
 # Subjects waiting for a classification: new names, name holds, and classifications their members have drifted from.
