@@ -2,9 +2,10 @@
 
 STATE_TABLES <- c("subjects", "subject_members", "subject_name_basis", "subject_task_views",
                   "collections", "collection_members", "collection_mentions",
-                  "seen_packages", "pipeline_runs", "weekly_clusters")
-# States written before weekly_clusters existed lack it, and their next weekly run clusters from scratch.
-OPTIONAL_STATE_TABLES <- "weekly_clusters"
+                  "seen_packages", "pipeline_runs", "weekly_clusters", "subject_cluster_basis")
+# States written before these tables existed lack them: the next weekly run clusters from scratch, and takes
+# each subject's cluster basis from that run's clusters.
+OPTIONAL_STATE_TABLES <- c("weekly_clusters", "subject_cluster_basis")
 
 # Every state table as a data frame, NULL for a missing optional one. NULL path is a cold start;
 # anything unreadable stops.

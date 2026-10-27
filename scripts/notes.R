@@ -4,7 +4,8 @@ count_of <- function(n, noun) {
   sprintf("**%s %s%s**", format(n, big.mark = ","), noun, if (n == 1L) "" else "s")
 }
 
-release_notes <- function(db_path, updated_at = format(Sys.time(), "%Y-%m-%d %H:%M UTC", tz = "UTC")) {
+release_notes <- function(db_path, updated_at = format(Sys.time(), "%Y-%m-%d %H:%M UTC", tz = "UTC"),
+                          settings = default_settings()) {
   con <- DBI::dbConnect(RSQLite::SQLite(), db_path, flags = RSQLite::SQLITE_RO)
   on.exit(DBI::dbDisconnect(con), add = TRUE)
   one <- function(sql) DBI::dbGetQuery(con, sql)[[1]]
@@ -14,7 +15,11 @@ release_notes <- function(db_path, updated_at = format(Sys.time(), "%Y-%m-%d %H:
   named <- n_status("named")
   placed <- one("SELECT COUNT(DISTINCT m.package) FROM subject_members m JOIN subjects s USING (subject_id)
                  WHERE s.status IN ('named', 'judged') AND m.\"left\" IS NULL")
-  run <- DBI::dbGetQuery(con, "SELECT mode, n_packages FROM pipeline_runs ORDER BY rowid DESC LIMIT 1")
+  run <- DBI::dbGetQuery(con, "SELECT run_at, mode, n_packages FROM pipeline_runs ORDER BY rowid DESC LIMIT 1")
+  read_if <- function(t) if (DBI::dbExistsTable(con, t)) DBI::dbGetQuery(con, sprintf('SELECT * FROM "%s"', t))
+  waiting <- published_waiting(DBI::dbGetQuery(con, "SELECT subject_id, status FROM subjects"),
+                               DBI::dbGetQuery(con, "SELECT subject_id, package, is_primary, \"left\" FROM subject_members"),
+                               read_if("subject_cluster_basis"), read_if("weekly_clusters"), settings)
   kinds <- DBI::dbGetQuery(con, "SELECT kind, COUNT(*) AS n FROM collections WHERE status = 'active' GROUP BY kind")
   n_kind <- function(k) sum(kinds$n[kinds$kind == k])
   mentions <- one("SELECT COUNT(DISTINCT m.package) FROM collection_mentions m JOIN collections c USING (collection_id)
@@ -26,6 +31,8 @@ release_notes <- function(db_path, updated_at = format(Sys.time(), "%Y-%m-%d %H:
     sprintf("%s published, covering **%s** of **%s** CRAN packages:", count_of(judged + named, "subject"), fmt(placed), fmt(run$n_packages)),
     sprintf("- **%s** classified by an LLM", fmt(judged)),
     sprintf("- **%s** named by the open model and waiting for a classification", fmt(named)),
+    sprintf("- **%s** drifted or too small, waiting for the classification on %s", fmt(length(waiting)),
+            next_classification_day(run$run_at)),
     sprintf("- **%s** held back", fmt(n_status("held"))),
     "",
     sprintf("%s: %s collection packages and %s organization communities, with %s more packages that mention one.",
@@ -40,5 +47,8 @@ release_notes <- function(db_path, updated_at = format(Sys.time(), "%Y-%m-%d %H:
 if (sys.nframe() == 0L) {
   args <- commandArgs(trailingOnly = TRUE)
   if (length(args) < 1L) stop("usage: Rscript scripts/notes.R OUT_DIR")
+  file_arg <- sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE))
+  script_dir <- if (length(file_arg) == 1L) dirname(normalizePath(file_arg)) else "scripts"
+  for (f in c("config.R", "identity.R", "classifications.R")) source(file.path(script_dir, f))
   writeLines(release_notes(file.path(args[1], "cran-subjects.db")), file.path(args[1], "release-notes.md"))
 }

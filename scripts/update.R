@@ -37,7 +37,8 @@ STATE_COLS <- list(
   pipeline_runs = c(run_at = "character", mode = "character", n_packages = "integer",
                     n_subjects_published = "integer", n_held = "integer", n_named_calls = "integer",
                     n_collections = "integer"),
-  weekly_clusters = c(package = "character", cluster = "integer")
+  weekly_clusters = c(package = "character", cluster = "integer"),
+  subject_cluster_basis = c(subject_id = "integer", package = "character")
 )
 
 # A state table with its export columns and types; NULL gives zero rows.
@@ -197,14 +198,33 @@ weekly_pass <- function(prev, inputs, classifications, io, settings, today, tick
   basis <- rbind(keep, typed(data.frame(
     subject_id = as.integer(rep(names(nm$basis), lengths(nm$basis))),
     package = unlist(nm$basis, use.names = FALSE), stringsAsFactors = FALSE), "subject_name_basis"))
+  clusters <- cluster_basis_rows(after, gid, ps, typed(prev$subject_cluster_basis, "subject_cluster_basis"), cl)
+  if (is.function(io$log)) {
+    w <- published_waiting(subjects, members, clusters, cl, settings)
+    io$log(sprintf("published subjects waiting for the classification on %s: %d drifted from the clustering, %d too small",
+                   next_classification_day(today), sum(w == "drifted"), sum(w == "too small")))
+  }
   tick("members")
 
   list(tables = list(subjects = with_sizes(subjects, members), subject_members = members,
                      subject_name_basis = sort_rows(basis, c("subject_id", "package")),
                      subject_task_views = task_view_rows(members, inputs$views),
                      seen_packages = seen_rows(prev$seen_packages, pk$name, today),
-                     weekly_clusters = typed(cl, "weekly_clusters")),
+                     weekly_clusters = typed(cl, "weekly_clusters"), subject_cluster_basis = clusters),
        calls = nm$calls)
+}
+
+# The cluster each live subject was last classified in. A steady subject keeps its own until a classification
+# applies to it; every other subject takes the cluster holding most of its members this week.
+cluster_basis_rows <- function(groups, gid, ps, prev_basis, cl) {
+  rows <- lapply(seq_along(groups), function(i) {
+    g <- groups[[i]]
+    old <- prev_basis$package[prev_basis$subject_id == gid[i]]
+    same <- identical(g$classification_at, ps$classification_at[match(gid[i], ps$subject_id)])
+    pk <- if (isTRUE(g$steady) && length(old) && same) old else home_cluster(g$members, cl)
+    if (length(pk)) data.frame(subject_id = gid[i], package = pk, stringsAsFactors = FALSE)
+  })
+  sort_rows(typed(do.call(rbind, rows), "subject_cluster_basis"), c("subject_id", "package"))
 }
 
 # TF-IDF and text vectors for every current package, with the stop words used.
@@ -630,7 +650,8 @@ daily_pass <- function(prev, inputs, settings, today, tick) {
                      subject_name_basis = typed(prev$subject_name_basis, "subject_name_basis"),
                      subject_task_views = task_view_rows(pm, inputs$views),
                      seen_packages = seen_rows(seen, pk$name, today),
-                     weekly_clusters = typed(prev$weekly_clusters, "weekly_clusters")),
+                     weekly_clusters = typed(prev$weekly_clusters, "weekly_clusters"),
+                     subject_cluster_basis = typed(prev$subject_cluster_basis, "subject_cluster_basis")),
        calls = 0L)
 }
 

@@ -297,7 +297,10 @@ test_that("a judged subject stays judged as its packages leave, and waits once t
                c(status = "judged", name = "Colour scales", slug = "colour-palettes", size = "20"))
   archive(sprintf("pal%02d", 10:20)); out4 <- run(out3)
   expect_equal(c(row(out4)$status, row(out4)$size), c("judged", "9"))
-  skip("needs Task 4")
+  w <- waiting_subjects(q(out4, "SELECT * FROM subjects"), q(out4, "SELECT * FROM subject_members"),
+                        q(out4, "SELECT * FROM subject_cluster_basis"), read_classifications(r$vf), st,
+                        q(out4, "SELECT * FROM weekly_clusters"))
+  expect_equal(w$why[w$subject_id == pal], "too small")
 })
 
 test_that("an emptied steady subject stays published with no members", {
@@ -308,6 +311,9 @@ test_that("an emptied steady subject stays published with no members", {
   s <- q(out2, sprintf("SELECT status, slug, size FROM subjects WHERE subject_id = %d", pal))
   expect_equal(s, data.frame(status = "named", slug = "colour-palettes", size = 0L))
   expect_equal(nrow(q(out2, sprintf("SELECT * FROM subject_members WHERE subject_id = %d AND \"left\" IS NULL", pal))), 0L)
+  w <- waiting_subjects(q(out2, "SELECT * FROM subjects"), q(out2, "SELECT * FROM subject_members"),
+                        q(out2, "SELECT * FROM subject_cluster_basis"), list(), st, q(out2, "SELECT * FROM weekly_clusters"))
+  expect_equal(w$why[w$subject_id == pal], "too small")
 })
 
 test_that("a missing model logs one line and makes no naming calls", {
@@ -597,4 +603,35 @@ test_that("a subject held by a classification stays held on later runs, as a hel
   s <- q(out3, sprintf("SELECT status, held_reason, slug, size FROM subjects WHERE subject_id = %d", pal))
   expect_equal(s, data.frame(status = "held", held_reason = "classification", slug = "colour-palettes", size = 30L))
   no_double(out3)
+})
+
+test_that("a weekly run records each new subject's cluster, and a daily run carries it", {
+  r <- cold(); wc <- q(r$out, "SELECT * FROM weekly_clusters")
+  for (id in q(r$out, "SELECT subject_id FROM subjects")$subject_id) {
+    expect_equal(q(r$out, sprintf("SELECT package FROM subject_cluster_basis WHERE subject_id = %d ORDER BY package", id))$package,
+                 home_cluster(primary_of(r$out, id), wc))
+  }
+  out2 <- run_update(fake_io(r$db, r$out), withr::local_tempdir(), "daily", r$vf, st)
+  expect_equal(q(out2, "SELECT * FROM subject_cluster_basis"), q(r$out, "SELECT * FROM subject_cluster_basis"))
+})
+
+test_that("a judged subject whose cluster merges with another waits as drifted, and the run log counts it", {
+  r <- cold(); pal <- subject_id_of(r$out, "colour-palettes")
+  write_classification(r$vf, subject_id = pal, members = primary_of(r$out, pal), classification = "keep",
+                       name = "Colour scales", description = "These packages give colour scales for plots.")
+  out2 <- weekly(fake_io(r$db, r$out), st, r$vf)
+  basis <- function(db) q(db, sprintf("SELECT package FROM subject_cluster_basis WHERE subject_id = %d ORDER BY package", pal))$package
+  expect_equal(basis(out2), sprintf("pal%02d", 1:30))
+  sql(r$db, "UPDATE packages SET imports = 'pal01, surv01' WHERE name LIKE 'pal%' AND name <> 'pal01'",
+      "UPDATE packages SET imports = 'surv01' WHERE name = 'pal01'")
+  io <- fake_io(r$db, out2); io$log <- function(msg) message(msg)
+  expect_message(out3 <- weekly(io, modifyList(st, list(resolution = 0.001)), r$vf),
+                 "published subjects waiting for the classification on 2026-11-01: 1 drifted from the clustering, 0 too small",
+                 fixed = TRUE)
+  expect_equal(basis(out3), basis(out2))
+  w <- waiting_subjects(q(out3, "SELECT * FROM subjects"), q(out3, "SELECT * FROM subject_members"),
+                        q(out3, "SELECT * FROM subject_cluster_basis"), read_classifications(r$vf), st,
+                        q(out3, "SELECT * FROM weekly_clusters"))
+  expect_equal(w$why[w$subject_id == pal], "drifted")
+  expect_equal(w$why[w$subject_id == subject_id_of(r$out, "survival-analysis")], "new name")
 })

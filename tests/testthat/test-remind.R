@@ -36,11 +36,15 @@ small_db <- function(out, ...) {
   db
 }
 
-test_that("remind_write lists a split part that drifted from its name basis", {
+test_that("remind_write lists a judged subject whose cluster moved", {
   out <- withr::local_tempdir()
+  a <- sprintf("a%02d", 1:10); x <- sprintf("x%02d", 1:10)
   db <- small_db(out, "INSERT INTO subjects VALUES (5, 'part', 'Part', 'judged', NULL)",
-                 "INSERT INTO subject_members VALUES (5, 'a', 1, NULL), (5, 'b', 1, NULL), (5, 'c', 1, NULL)",
-                 "INSERT INTO subject_name_basis VALUES (5, 'a'), (5, 'x'), (5, 'y')")
+                 sprintf("INSERT INTO subject_members VALUES %s", paste(sprintf("(5, '%s', 1, NULL)", a), collapse = ", ")),
+                 "CREATE TABLE weekly_clusters (package TEXT, cluster INTEGER)",
+                 sprintf("INSERT INTO weekly_clusters VALUES %s", paste(sprintf("('%s', 1)", c(a, x)), collapse = ", ")),
+                 "CREATE TABLE subject_cluster_basis (subject_id INTEGER, package TEXT)",
+                 sprintf("INSERT INTO subject_cluster_basis VALUES %s", paste(sprintf("(5, '%s')", a), collapse = ", ")))
   vp <- file.path(out, "v.json")
   writeLines("[]", vp)
   expect_equal(remind_write(db, vp, out, default_settings()), 1L)
@@ -50,7 +54,9 @@ test_that("remind_write lists a split part that drifted from its name basis", {
 test_that("remind_write counts waiting subjects in a database", {
   skip_if_not_installed("RSQLite")
   out <- withr::local_tempdir()
-  db <- small_db(out, "INSERT INTO subjects VALUES (1, 'a', 'Alpha', 'named', NULL), (2, 'b', 'Beta', 'judged', NULL)")
+  db <- small_db(out, "INSERT INTO subjects VALUES (1, 'a', 'Alpha', 'named', NULL), (2, 'b', 'Beta', 'judged', NULL)",
+                 sprintf("INSERT INTO subject_members VALUES %s",
+                         paste(sprintf("(%d, 'p%02d', 1, NULL)", rep(1:2, each = 10), 1:20), collapse = ", ")))
   vp <- file.path(out, "v.json")
   writeLines("[]", vp)
   n <- remind_write(db, vp, out, default_settings())

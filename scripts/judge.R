@@ -94,7 +94,7 @@ judge_prepare <- function(state_path, inputs_path, out_dir, classifications_path
   members <- state$subject_members
   live <- subjects[!subjects$status %in% "retired", , drop = FALSE]
   todo <- if (all) live[order(live$subject_id), c("subject_id", "slug", "name"), drop = FALSE]
-          else waiting_subjects(subjects, members, state$subject_name_basis, classifications, settings, state$weekly_clusters)
+          else waiting_subjects(subjects, members, state$subject_cluster_basis, classifications, settings, state$weekly_clusters)
   open <- members[members$is_primary %in% 1L & is.na(members$left), , drop = FALSE]
   words <- stats::setNames(lapply(live$name, safe_main_words), as.character(live$subject_id))
   gram_df <- title_gram_df(stats::setNames(inputs$packages$title, inputs$packages$name))
@@ -102,11 +102,7 @@ judge_prepare <- function(state_path, inputs_path, out_dir, classifications_path
   lines <- character()
   for (r in seq_len(nrow(todo))) {
     id <- todo$subject_id[r]
-    # A drifted split is judged again as its whole cluster, so the answer is matched as the weekly run matches it.
-    m <- if (isTRUE(todo$why[r] == "split drifted")) {
-      split_cluster(Filter(function(v) identical(as.integer(v[["subject_id"]]), as.integer(id)), classifications)[[1]],
-                    state$weekly_clusters)
-    } else sort(open$package[open$subject_id == id], method = "radix")
+    m <- sort(open$package[open$subject_id == id], method = "radix")
     if (!length(m)) next
     edges <- dependency_edges(inputs$deps, m)
     nm <- subjects$name[match(id, subjects$subject_id)]
