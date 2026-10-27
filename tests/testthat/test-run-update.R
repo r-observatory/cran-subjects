@@ -635,3 +635,15 @@ test_that("a judged subject whose cluster merges with another waits as drifted, 
   expect_equal(w$why[w$subject_id == pal], "drifted")
   expect_equal(w$why[w$subject_id == subject_id_of(r$out, "survival-analysis")], "new name")
 })
+
+test_that("packages a classification moved out of a published subject do not form a new subject", {
+  r <- cold(); pal <- subject_id_of(r$out, "colour-palettes")
+  write_classification(r$vf, subject_id = pal, members = primary_of(r$out, pal), classification = "keep",
+                       name = "Colour scales", description = "These packages give colour scales for plots.",
+                       strays = sprintf("pal%02d", 11:30))
+  out2 <- weekly(fake_io(r$db, r$out), st, r$vf); out3 <- weekly(fake_io(r$db, out2), st, r$vf)
+  open <- q(out3, sprintf("SELECT package FROM subject_members WHERE subject_id = %d AND is_primary = 1 AND \"left\" IS NULL", pal))
+  expect_equal(sort(open$package), sprintf("pal%02d", 1:10))
+  expect_equal(nrow(q(out3, "SELECT * FROM subjects")), 2L)
+  expect_equal(nrow(q(out3, "SELECT * FROM subject_members WHERE package = 'pal20' AND is_primary = 1 AND \"left\" IS NULL")), 0L)
+})

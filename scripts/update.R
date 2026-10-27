@@ -155,9 +155,12 @@ weekly_pass <- function(prev, inputs, classifications, io, settings, today, tick
   open <- pm[pm$is_primary %in% 1L & is.na(pm$left), , drop = FALSE]
   prev_members <- lapply(live, function(id) sort(open$package[open$subject_id == id], method = "radix"))
   names(prev_members) <- as.character(live)
-  # New subjects form only from the packages no steady subject holds.
+  # New subjects form only from the packages no steady subject holds. Strays a classification moved out of a
+  # subject stay out too, as before; a held subject's strays still go with its cluster.
   taken <- unlist(lapply(steady, `[[`, "members"), use.names = FALSE)
-  groups <- c(steady, candidate_groups(pool_clusters(cl, taken), pk, settings))
+  held <- ps$subject_id[ps$status %in% "held"]
+  strays <- unlist(lapply(classifications, function(v) if (!as.integer(v[["subject_id"]]) %in% held) v[["strays"]]))
+  groups <- c(steady, candidate_groups(pool_clusters(cl, c(taken, strays)), pk, settings))
   tick("clusters")
 
   pick <- classification_picks(groups, classifications, ps, settings)
